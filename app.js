@@ -4,6 +4,7 @@
   var RUNTIME = window.FEED_STUDIO_RUNTIME || {};
   var REPOSITORY = String(RUNTIME.repository || 'indigo-dm/novyy-gorizont-feed');
   var DATA_ROOT = String(RUNTIME.dataRoot || '').replace(/\/$/, '');
+  var FEED_ROOT = String(RUNTIME.feedRoot || 'https://indigo-dm.github.io/feed-studio/feeds').replace(/\/$/, '');
   var state = {
     registry: null,
     project: null,
@@ -13,6 +14,8 @@
     rules: [],
     imageSettings: { lot_overrides: {}, bulk_rules: [] },
     parameterSettings: { lot_values: {}, bulk_rules: [] },
+    materialSettings: { logo: '', key_render: '' },
+    excludedLotIds: [],
     activeRuleId: null,
     activeView: 'dashboard',
     filters: { house: '', rooms: '', floor: '', search: '' },
@@ -26,6 +29,9 @@
     imageUploadBusy: false,
     imageUploadMessage: '',
     imageUploadTone: '',
+    materialUploadBusy: false,
+    materialUploadMessage: '',
+    materialUploadTone: '',
     pendingUploadDeletions: [],
     publishOperation: null,
     publishPollTimer: null,
@@ -75,6 +81,7 @@
   };
   var emptyImageSettings = function () { return { lot_overrides: {}, bulk_rules: [] }; };
   var emptyParameterSettings = function () { return { lot_values: {}, bulk_rules: [] }; };
+  var emptyMaterialSettings = function () { return { logo: '', key_render: '' }; };
 
   function itemMatchesFilters(item, filters) {
     var search = String(filters.search || '').trim().toLowerCase();
@@ -121,6 +128,18 @@
     return {
       lot_values: source.lot_values && typeof source.lot_values === 'object' ? clone(source.lot_values) : {},
       bulk_rules: Array.isArray(source.bulk_rules) ? clone(source.bulk_rules) : []
+    };
+  }
+
+  function normalizeMaterialSettings(value, assets) {
+    var source = value && typeof value === 'object' ? value : {};
+    var current = assets && assets.current && typeof assets.current === 'object' ? assets.current : {};
+    var items = assets && Array.isArray(assets.items) ? assets.items : [];
+    var legacyLogo = items.find(function (item) { return item.key === 'logo'; });
+    var legacyRender = items.find(function (item) { return item.key === 'key_render'; });
+    return {
+      logo: String(source.logo || current.logo || (legacyLogo && legacyLogo.filename) || ''),
+      key_render: String(source.key_render || current.key_render || (legacyRender && legacyRender.filename) || '')
     };
   }
 
@@ -214,10 +233,12 @@
 
   function saveDraft(showMessage) {
     localStorage.setItem(draftKey(), JSON.stringify({
-      version: 2,
+      version: 3,
       rules: state.rules,
       image_settings: state.imageSettings,
       parameter_settings: state.parameterSettings,
+      material_settings: state.materialSettings,
+      excluded_lot_ids: state.excludedLotIds,
       pending_upload_deletions: state.pendingUploadDeletions
     }));
     state.dirty = false;
@@ -241,6 +262,7 @@
   }
 
   function appliedRule(item) {
+    if (state.excludedLotIds.indexOf(String(item.id)) >= 0) return null;
     return state.rules.find(function (rule) { return rule.enabled && ruleMatches(item, rule, false); }) || null;
   }
 
@@ -268,7 +290,7 @@
     $('#project-select').value = state.project.slug;
     var projectBase = dataUrl(state.project.base);
     $('#source-feed-link').href = projectBase + '/source-profitbase.xml';
-    $('#full-feed-link').href = projectBase + '/full-avito-demo.xml';
+    $('#full-feed-link').href = FEED_ROOT + '/' + encodeURIComponent(state.project.slug) + '/avito.xml';
     $('#pilot-feed-link').href = projectBase + '/pilot-avito.xml';
     $('#full-feed-link').textContent = 'Полный фид · ' + state.inventory.full_ads + ' квартир ↗';
     $('#pilot-feed-link').textContent = 'Тестовый фид · ' + state.status.unique_plans + ' планировок ↗';
@@ -280,15 +302,30 @@
 
   function renderAssets() {
     if (!state.assets) return;
-    $('#upload-assets').href = state.assets.upload_url;
     $('#asset-grid').innerHTML = state.assets.items.map(function (asset) {
       var preview = asset.exists ? '<img src="' + esc(versionedUrl(asset.url)) + '" alt="' + esc(asset.name) + '" loading="lazy" decoding="async">' :
         '<div class="asset-missing">Файл не загружен</div>';
-      return '<article class="asset-card"><div class="asset-preview">' + preview + '</div><div class="asset-copy"><div><strong>' +
-        esc(asset.name) + '</strong><span class="asset-status ' + (asset.exists ? 'ready' : '') + '">' +
-        (asset.exists ? 'Готово' : 'Требуется') + '</span></div><p>' + esc(asset.description) + '</p><code>' +
-        esc(asset.filename) + '</code></div></article>';
+      var roles = [];
+      if (state.materialSettings.logo === asset.filename) roles.push('Логотип');
+      if (state.materialSettings.key_render === asset.filename) roles.push('Ключевой рендер');
+      var status = roles.length ? 'Используется: ' + roles.join(' · ') : (asset.exists ? 'В библиотеке' : 'Файл отсутствует');
+      var actions = asset.exists ? '<div class="asset-actions">' +
+        (state.materialSettings.logo === asset.filename ? '' : '<button class="button button-secondary button-small" data-use-material="logo" data-material-file="' + esc(asset.filename) + '">Сделать логотипом</button>') +
+        (state.materialSettings.key_render === asset.filename ? '' : '<button class="button button-secondary button-small" data-use-material="key_render" data-material-file="' + esc(asset.filename) + '">Сделать рендером</button>') +
+        '</div>' : '';
+      return '<article class="asset-card ' + (roles.length ? 'active' : '') + '"><div class="asset-preview">' + preview + '</div><div class="asset-copy"><div><strong>' +
+        esc(asset.name) + '</strong><span class="asset-status ' + (roles.length ? 'active' : (asset.exists ? 'ready' : '')) + '">' +
+        esc(status) + '</span></div><p>' + esc(asset.description || 'Загруженный фирменный материал объекта.') + '</p><code>' +
+        esc(asset.filename) + '</code>' + actions + '</div></article>';
     }).join('');
+    $$('[data-use-material]', $('#asset-grid')).forEach(function (button) {
+      button.addEventListener('click', function () {
+        state.materialSettings[button.dataset.useMaterial] = button.dataset.materialFile;
+        setDirty(true);
+        renderAssets();
+        showToast(button.dataset.useMaterial === 'logo' ? 'Выбран новый логотип' : 'Выбран новый ключевой рендер');
+      });
+    });
     var palette = state.assets.brand.palette || [
       { name: 'Основной', value: state.assets.brand.green },
       { name: 'Акцент', value: state.assets.brand.gold },
@@ -300,11 +337,14 @@
       return '<div class="palette-item"><span class="palette-swatch" style="background:' + value + '"></span><div><strong>' +
         esc(color.name) + '</strong><code>' + esc(value.toUpperCase()) + '</code></div></div>';
     }).join('');
+    renderMaterialUploadState();
   }
 
   function renderStats() {
     $('#stat-source').textContent = state.inventory.source_ads;
-    $('#stat-plans').textContent = state.inventory.full_ads || state.inventory.items.length;
+    $('#stat-plans').textContent = state.inventory.items.filter(function (item) {
+      return state.excludedLotIds.indexOf(String(item.id)) < 0;
+    }).length;
     $('#stat-promotions').textContent = state.rules.filter(function (rule) { return rule.enabled; }).length;
     $('#stat-updated').textContent = formatDateTime(state.inventory.checked_at);
     if (state.inventory.items[0]) {
@@ -358,12 +398,15 @@
 
   function lotCard(item) {
     var rule = appliedRule(item);
-    return '<article class="lot-card">' +
+    var excluded = state.excludedLotIds.indexOf(String(item.id)) >= 0;
+    return '<article class="lot-card ' + (excluded ? 'excluded' : '') + '">' +
       '<div class="lot-image"><img src="' + esc(versionedUrl(item.thumbnail || item.image)) + '" alt="' + esc(item.house + ', ' + item.rooms + '-комнатная') + '" loading="lazy" decoding="async" width="480" height="360">' +
-      '<span class="lot-badge">' + esc(item.house) + (rule ? ' · акция' : '') + '</span></div>' +
+      '<span class="lot-badge">' + (excluded ? 'Исключён из фида' : esc(item.house) + (rule ? ' · акция' : '')) + '</span></div>' +
       '<div class="lot-body"><div class="lot-title"><strong>' + esc(item.rooms) + '-комнатная · ' + esc(formatArea(item.area)) + '</strong><span>ID ' + esc(item.id) + '</span></div>' +
       '<div class="lot-meta">' + esc(formatPrice(item.price)) + ' · этаж ' + esc(item.floor) + '/' + esc(item.floors) + '</div>' +
-      '<div class="lot-actions"><button data-preview="' + esc(item.id) + '">Предпросмотр</button></div></div></article>';
+      '<div class="lot-actions"><button data-preview="' + esc(item.id) + '">Предпросмотр</button>' +
+      '<button class="lot-feed-toggle ' + (excluded ? 'restore' : '') + '" data-toggle-feed-lot="' + esc(item.id) + '">' +
+      (excluded ? 'Вернуть в фид' : 'Исключить из фида') + '</button></div></div></article>';
   }
 
   function renderLots() {
@@ -399,6 +442,20 @@
         state.previewId = button.dataset.preview;
         $('#preview-lot').value = state.previewId;
         navigate('preview');
+      });
+    });
+    $$('[data-toggle-feed-lot]', $('#lots-grid')).forEach(function (button) {
+      button.addEventListener('click', function () {
+        var id = String(button.dataset.toggleFeedLot);
+        if (state.excludedLotIds.indexOf(id) >= 0) {
+          state.excludedLotIds = state.excludedLotIds.filter(function (value) { return value !== id; });
+          showToast('Квартира будет возвращена в фид после публикации');
+        } else {
+          state.excludedLotIds.push(id);
+          showToast('Квартира не войдёт в готовый XML после публикации');
+        }
+        setDirty(true);
+        renderAll();
       });
     });
   }
@@ -438,6 +495,123 @@
 
   function serviceEndpoint(path) {
     return uploadServiceUrl().replace(/\/+$/, '') + path;
+  }
+
+  function mergeMaterialItems(items) {
+    if (!state.assets || !Array.isArray(items)) return;
+    var known = new Set((state.assets.items || []).map(function (item) { return String(item.filename); }));
+    items.forEach(function (item) {
+      var filename = String(item.filename || '');
+      var url = String(item.url || '');
+      if (!filename || known.has(filename) || !/^https:\/\//i.test(url)) return;
+      state.assets.items.push({
+        key: String(item.id || ('asset-' + Date.now().toString(36))),
+        name: String(item.name || 'Загруженный материал'),
+        description: 'Загруженный фирменный материал объекта.',
+        filename: filename,
+        exists: true,
+        url: url,
+        uploaded: true,
+        active_for: []
+      });
+      known.add(filename);
+    });
+  }
+
+  async function loadMaterialLibrary() {
+    if (!state.project || !uploadServiceUrl()) return;
+    var credential = window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.get ? window.FEED_STUDIO_CREDENTIAL.get() : '';
+    if (!credential) return;
+    try {
+      var response = await fetch(serviceEndpoint('/materials?project=' + encodeURIComponent(state.project.slug)), {
+        headers: { Authorization: 'Bearer ' + credential },
+        cache: 'no-store'
+      });
+      if (!response.ok) return;
+      var payload = await response.json();
+      mergeMaterialItems(payload.items || []);
+    } catch (error) {
+      return;
+    }
+  }
+
+  function renderMaterialUploadState() {
+    var zone = $('#material-drop-zone');
+    var button = $('#choose-material-file');
+    var status = $('#material-upload-status');
+    if (!zone || !button || !status) return;
+    var available = Boolean(uploadServiceUrl() && state.project);
+    zone.classList.toggle('disabled', !available);
+    zone.classList.toggle('uploading', state.materialUploadBusy);
+    button.disabled = !available || state.materialUploadBusy;
+    status.className = 'image-upload-status' + (state.materialUploadTone ? ' ' + state.materialUploadTone : '');
+    status.textContent = state.materialUploadMessage || (available ? 'После загрузки выберите, где использовать материал.' : 'Загрузка станет доступна после подключения защищённого хранилища.');
+  }
+
+  function setMaterialUploadMessage(message, tone) {
+    state.materialUploadMessage = message || '';
+    state.materialUploadTone = tone || '';
+    renderMaterialUploadState();
+  }
+
+  async function optimizeMaterialFile(file) {
+    var allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'];
+    if (!file || allowed.indexOf(file.type) < 0) throw new Error('Выберите JPG, PNG, WebP или SVG.');
+    if (file.size > 20 * 1024 * 1024) throw new Error('Исходный файл не должен превышать 20 МБ.');
+    if (file.type === 'image/svg+xml') {
+      if (file.size > 10 * 1024 * 1024) throw new Error('SVG не должен превышать 10 МБ.');
+      return file;
+    }
+    var bitmap = await createImageBitmap(file);
+    var maxSide = 2400;
+    var scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+    var canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    var context = canvas.getContext('2d');
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    if (bitmap.close) bitmap.close();
+    var outputType = file.type === 'image/png' ? 'image/png' : 'image/webp';
+    var blob = await new Promise(function (resolve) { canvas.toBlob(resolve, outputType, 0.9); });
+    if (!blob) throw new Error('Не удалось подготовить материал.');
+    if (blob.size > 10 * 1024 * 1024) throw new Error('После оптимизации файл превышает 10 МБ.');
+    var name = String(file.name || 'material').replace(/\.[^.]+$/, '').replace(/[^A-Za-zА-Яа-яЁё0-9_-]+/g, '-').slice(0, 60) || 'material';
+    return new File([blob], name + (outputType === 'image/png' ? '.png' : '.webp'), { type: outputType });
+  }
+
+  async function uploadMaterialFile(file) {
+    if (!state.project || !uploadServiceUrl() || state.materialUploadBusy) return;
+    var credential = window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.get ? window.FEED_STUDIO_CREDENTIAL.get() : '';
+    if (!credential) {
+      showToast('Выйдите и войдите в Feed Studio повторно.');
+      return;
+    }
+    state.materialUploadBusy = true;
+    setMaterialUploadMessage('Оптимизируем и загружаем материал…', '');
+    try {
+      var optimized = await optimizeMaterialFile(file);
+      var body = new FormData();
+      body.append('project', state.project.slug);
+      body.append('file', optimized, optimized.name);
+      var response = await fetch(serviceEndpoint('/materials/upload'), {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + credential },
+        body: body
+      });
+      var payload = await response.json().catch(function () { return {}; });
+      if (!response.ok) {
+        if (response.status === 401 && window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.set) window.FEED_STUDIO_CREDENTIAL.set('');
+        throw new Error(payload.error || 'Не удалось загрузить материал.');
+      }
+      mergeMaterialItems([payload]);
+      setMaterialUploadMessage('Материал загружен. Теперь назначьте его логотипом или ключевым рендером.', 'success');
+      renderAssets();
+    } catch (error) {
+      setMaterialUploadMessage(error.message || 'Не удалось загрузить материал.', 'error');
+    } finally {
+      state.materialUploadBusy = false;
+      renderMaterialUploadState();
+    }
   }
 
   function managedUploadPath(item, image) {
@@ -836,7 +1010,9 @@
 
   function renderRuleList() {
     $('#rules-list').innerHTML = state.rules.map(function (rule, index) {
-      var count = state.inventory.items.filter(function (item) { return ruleMatches(item, rule, false); }).length;
+      var count = state.inventory.items.filter(function (item) {
+        return state.excludedLotIds.indexOf(String(item.id)) < 0 && ruleMatches(item, rule, false);
+      }).length;
       return '<button class="rule-item ' + (rule.id === state.activeRuleId ? 'active' : '') + '" data-rule-id="' + esc(rule.id) + '">' +
         '<span class="rule-state ' + (rule.enabled ? 'on' : '') + '"></span><span class="rule-copy"><strong>' +
         esc((index + 1) + '. ' + rule.name) + '</strong><small>' + count + ' квартир · ' + (rule.enabled ? 'включена' : 'выключена') +
@@ -876,7 +1052,9 @@
     roomValues.sort();
     var roomLabels = {};
     roomValues.forEach(function (room) { roomLabels[room] = room + '-комнатные'; });
-    var groupMatches = state.inventory.items.filter(function (item) { return ruleMatches(item, rule, true); });
+    var groupMatches = state.inventory.items.filter(function (item) {
+      return state.excludedLotIds.indexOf(String(item.id)) < 0 && ruleMatches(item, rule, true);
+    });
     var finalMatches = groupMatches.filter(function (item) { return rule.exclude_ids.indexOf(String(item.id)) < 0; });
     var index = state.rules.indexOf(rule);
     editor.innerHTML =
@@ -969,7 +1147,9 @@
     var rule = appliedRule(item);
     var promo = $('#live-promo');
     promo.classList.toggle('hidden', !rule);
-    if (rule) {
+    if (state.excludedLotIds.indexOf(String(item.id)) >= 0) {
+      $('#applied-rule').innerHTML = '<span>Статус лота</span><strong>Исключён из результирующего XML</strong>';
+    } else if (rule) {
       $('#live-promo-label').textContent = rule.label;
       $('#live-promo-text').textContent = rule.text;
       $('#applied-rule').innerHTML = '<span>Применяется правило</span><strong>' + esc(rule.name) + ': ' + esc(rule.text) + '</strong>';
@@ -992,11 +1172,13 @@
 
   function settingsPayload() {
     return {
-      version: 2,
+      version: 3,
       project: state.project.slug,
       rules: state.rules.map(normalizeRule),
       image_settings: clone(state.imageSettings),
       parameter_settings: clone(state.parameterSettings),
+      material_settings: clone(state.materialSettings),
+      excluded_lot_ids: clone(state.excludedLotIds),
       pending_upload_deletions: clone(state.pendingUploadDeletions)
     };
   }
@@ -1068,6 +1250,10 @@
     if (state.rules.length > 10) return 'Допускается не более 10 правил.';
     if (state.imageSettings.bulk_rules.length > 30) return 'Допускается не более 30 массовых правил изображений.';
     if (state.parameterSettings.bulk_rules.length > 30) return 'Допускается не более 30 массовых правил параметров.';
+    if (state.excludedLotIds.length > 250) return 'Допускается исключить не более 250 лотов.';
+    if (!state.materialSettings.logo || !state.materialSettings.key_render) return 'Выберите логотип и ключевой рендер.';
+    var materialFiles = new Set((state.assets && state.assets.items || []).filter(function (asset) { return asset.exists; }).map(function (asset) { return asset.filename; }));
+    if (!materialFiles.has(state.materialSettings.logo) || !materialFiles.has(state.materialSettings.key_render)) return 'Один из выбранных материалов недоступен.';
     for (var i = 0; i < state.rules.length; i += 1) {
       var rule = state.rules[i];
       if (!rule.name.trim()) return 'У правила ' + (i + 1) + ' нет названия.';
@@ -1098,7 +1284,9 @@
     $('#publish-summary').innerHTML = '<strong>' + enabled.length + ' активных правил</strong><br>' +
       affected + ' из ' + state.inventory.items.length + ' квартир получат акцию.<br>' +
       Object.keys(state.imageSettings.lot_overrides).length + ' индивидуальных галерей и ' + state.imageSettings.bulk_rules.length + ' массовых правил изображений.<br>' +
-      Object.keys(state.parameterSettings.lot_values).length + ' квартир с дополнительными параметрами и ' + state.parameterSettings.bulk_rules.length + ' массовых правил параметров.' +
+      Object.keys(state.parameterSettings.lot_values).length + ' квартир с дополнительными параметрами и ' + state.parameterSettings.bulk_rules.length + ' массовых правил параметров.<br>' +
+      '<strong>' + state.excludedLotIds.length + ' лотов исключено из результирующего XML.</strong><br>' +
+      'Логотип: <strong>' + esc(state.materialSettings.logo) + '</strong><br>Ключевой рендер: <strong>' + esc(state.materialSettings.key_render) + '</strong>.' +
       (state.pendingUploadDeletions.length ? '<br><strong>' + state.pendingUploadDeletions.length + ' загруженных файлов будут физически удалены после публикации.</strong>' : '');
     $('#publish-modal').classList.remove('hidden');
   }
@@ -1235,6 +1423,30 @@
       var file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
       if (file && uploadServiceUrl()) uploadImageFile(file);
     });
+    $('#choose-material-file').addEventListener('click', function (event) {
+      event.stopPropagation();
+      if (uploadServiceUrl()) $('#material-file-input').click();
+    });
+    $('#material-file-input').addEventListener('change', function (event) {
+      var file = event.target.files && event.target.files[0];
+      event.target.value = '';
+      if (file) uploadMaterialFile(file);
+    });
+    var materialDropZone = $('#material-drop-zone');
+    materialDropZone.addEventListener('click', function () { if (uploadServiceUrl()) $('#material-file-input').click(); });
+    materialDropZone.addEventListener('keydown', function (event) {
+      if ((event.key === 'Enter' || event.key === ' ') && uploadServiceUrl()) { event.preventDefault(); $('#material-file-input').click(); }
+    });
+    ['dragenter', 'dragover'].forEach(function (eventName) {
+      materialDropZone.addEventListener(eventName, function (event) { event.preventDefault(); if (uploadServiceUrl()) materialDropZone.classList.add('dragover'); });
+    });
+    ['dragleave', 'drop'].forEach(function (eventName) {
+      materialDropZone.addEventListener(eventName, function (event) { event.preventDefault(); materialDropZone.classList.remove('dragover'); });
+    });
+    materialDropZone.addEventListener('drop', function (event) {
+      var file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+      if (file && uploadServiceUrl()) uploadMaterialFile(file);
+    });
     $('#add-image-url').addEventListener('click', function () {
       var item = state.inventory.items.find(function (lot) { return lot.id === state.imageLotId; });
       var input = $('#new-image-url');
@@ -1364,6 +1576,10 @@
       state.rules = draft && Array.isArray(draft.rules) ? draft.rules.map(normalizeRule) : publishedRules;
       state.imageSettings = normalizeImageSettings(draft && draft.image_settings != null ? draft.image_settings : data[1].image_settings || emptyImageSettings());
       state.parameterSettings = normalizeParameterSettings(draft && draft.parameter_settings != null ? draft.parameter_settings : data[1].parameter_settings || emptyParameterSettings());
+      state.materialSettings = normalizeMaterialSettings(draft && draft.material_settings != null ? draft.material_settings : data[1].material_settings || emptyMaterialSettings(), state.assets);
+      var availableLotIds = new Set(state.inventory.items.map(function (item) { return String(item.id); }));
+      state.excludedLotIds = Array.from(new Set((draft && Array.isArray(draft.excluded_lot_ids) ? draft.excluded_lot_ids : data[1].excluded_lot_ids || []).map(String)))
+        .filter(function (id) { return availableLotIds.has(id); });
       state.pendingUploadDeletions = draft && Array.isArray(draft.pending_upload_deletions) ? clone(draft.pending_upload_deletions) : [];
       state.draftSaved = Boolean(draft);
       if (!preservePublication) {
@@ -1376,10 +1592,14 @@
       state.imageUploadBusy = false;
       state.imageUploadMessage = '';
       state.imageUploadTone = '';
+      state.materialUploadBusy = false;
+      state.materialUploadMessage = '';
+      state.materialUploadTone = '';
       state.page = 1;
       state.filters = { house: '', rooms: '', floor: '', search: '' };
       state.imageFilters = { house: '', rooms: '', floor: '', search: '' };
       state.parameterFilters = { house: '', rooms: '', floor: '', search: '' };
+      await loadMaterialLibrary();
       populateFilters();
       renderAll();
       navigate(state.activeView);

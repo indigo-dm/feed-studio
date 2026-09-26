@@ -48,7 +48,7 @@
         <button class="nav-item" data-view="preview"><span class="nav-icon">◉</span><span>Предпросмотр</span></button>
       </nav>
       <a class="sidebar-link" id="source-feed-link" href="source-profitbase.xml" target="_blank" rel="noopener">Полученный фид из Profitbase ↗</a>
-      <a class="sidebar-link sidebar-link-secondary" id="full-feed-link" href="full-avito-demo.xml" target="_blank" rel="noopener">Полный фид ↗</a>
+      <a class="sidebar-link sidebar-link-secondary" id="full-feed-link" href="feeds/novyy-gorizont/avito.xml" target="_blank" rel="noopener">Полный фид ↗</a>
       <a class="sidebar-link sidebar-link-secondary" id="pilot-feed-link" href="pilot-avito.xml" target="_blank" rel="noopener">Тестовый фид ↗</a>
     </aside>
 
@@ -218,23 +218,32 @@
 
         <section class="view" id="view-assets">
           <div class="notice">
-            <div><strong>Материалы выбранного объекта</strong><span>Файлы хранятся в GitHub и используются только при сборке фида этого ЖК.</span></div>
-            <span class="notice-badge">GITHUB</span>
+            <div><strong>Материалы выбранного объекта</strong><span>Загружайте варианты и назначайте активные логотип и ключевой рендер прямо в Feed Studio.</span></div>
+            <span class="notice-badge">АВТО</span>
           </div>
           <div class="assets-layout">
             <section class="panel">
-              <div class="panel-heading"><div><p class="eyebrow">Фирменные материалы</p><h2>Логотипы, рендеры и цвета</h2></div><a class="button button-primary button-link" id="upload-assets" href="#" target="_blank" rel="noopener">Загрузить материалы</a></div>
+              <div class="panel-heading"><div><p class="eyebrow">Фирменные материалы</p><h2>Логотипы, рендеры и цвета</h2></div></div>
+              <div class="material-upload-block">
+                <input id="material-file-input" type="file" accept="image/jpeg,image/png,image/webp,image/svg+xml" hidden>
+                <div class="image-drop-zone" id="material-drop-zone" tabindex="0" role="button" aria-label="Загрузить фирменный материал">
+                  <span class="image-drop-icon">＋</span>
+                  <div><strong>Перетащите логотип или рендер сюда</strong><small>JPG, PNG, WebP или SVG. Растровые файлы автоматически уменьшаются до 2400 px.</small></div>
+                  <button class="button button-primary" id="choose-material-file" type="button">Выбрать файл</button>
+                </div>
+                <p class="image-upload-status" id="material-upload-status"></p>
+              </div>
               <div class="asset-grid" id="asset-grid"></div>
               <div class="brand-palette" id="brand-palette"></div>
             </section>
             <aside class="panel asset-guide">
-              <p class="eyebrow">Порядок обновления</p>
-              <h2>Как заменить файл</h2>
+              <p class="eyebrow">Как это работает</p>
+              <h2>Замена материалов</h2>
               <ol class="flow-list">
-                <li><span>1</span><div><strong>Откройте загрузку</strong><small>GitHub откроет папку выбранного ЖК.</small></div></li>
-                <li><span>2</span><div><strong>Добавьте новый файл</strong><small>Используйте имя, указанное в карточке материала.</small></div></li>
-                <li><span>3</span><div><strong>Подтвердите коммит</strong><small>GitHub сохранит автора и историю изменения.</small></div></li>
-                <li><span>4</span><div><strong>Пересоберите фид</strong><small>После сборки новый материал появится во всех карточках объекта.</small></div></li>
+                <li><span>1</span><div><strong>Загрузите файл</strong><small>Проводником или перетаскиванием, без перехода в GitHub.</small></div></li>
+                <li><span>2</span><div><strong>Назначьте роль</strong><small>Нажмите «Сделать логотипом» или «Сделать рендером».</small></div></li>
+                <li><span>3</span><div><strong>Проверьте отметку</strong><small>На активном файле появится статус «Используется».</small></div></li>
+                <li><span>4</span><div><strong>Примените изменения</strong><small>Одна публикация обновит макеты выбранного ЖК.</small></div></li>
               </ol>
             </aside>
           </div>

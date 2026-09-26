@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  repository_dispatch:
+    types: [feed-data-updated]
+  schedule:
+    - cron: "10 * * * *"
 
 permissions:
   contents: read
@@ -24,11 +28,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Checkout current generated feeds
+        uses: actions/checkout@v7
+        with:
+          repository: indigo-dm/novyy-gorizont-feed
+          ref: feed-data
+          path: generated-feed-data
+
       - name: Prepare static site
         run: |
           mkdir site
           cp index.html app.css app.js access.js access-config.js runtime-config.js robots.txt .nojekyll site/
           cp -R assets site/assets
+          mkdir -p site/feeds
+          find generated-feed-data/published/projects -mindepth 2 -maxdepth 2 -name avito.xml -print0 | while IFS= read -r -d '' feed; do
+            slug="$(basename "$(dirname "$feed")")"
+            mkdir -p "site/feeds/$slug"
+            cp "$feed" "site/feeds/$slug/avito.xml"
+          done
+          test -f site/feeds/novyy-gorizont/avito.xml
 
       - name: Configure Pages
         uses: actions/configure-pages@v6
