@@ -775,7 +775,7 @@
     zone.classList.toggle('uploading', state.imageUploadBusy);
     button.disabled = !available || state.imageUploadBusy;
     status.className = 'image-upload-status' + (state.imageUploadTone ? ' ' + state.imageUploadTone : '');
-    status.textContent = state.imageUploadMessage || (available ? 'Изображение будет уменьшено до 2000 px и сохранено в GitHub.' : 'Загрузка файлов станет доступна после подключения защищённого хранилища.');
+    status.textContent = state.imageUploadMessage || (available ? 'Изображение будет уменьшено до 2000 px и сохранено в защищённом хранилище.' : 'Загрузка файлов станет доступна после подключения защищённого хранилища.');
   }
 
   function setImageUploadMessage(message, tone) {
