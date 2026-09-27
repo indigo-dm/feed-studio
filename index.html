@@ -159,6 +159,12 @@
               </div>
               <button class="button button-primary full-width" id="apply-image-bulk">Создать массовое правило</button>
               <div class="bulk-rules" id="image-bulk-rules"></div>
+              <section class="individual-rules-section">
+                <p class="eyebrow">Отдельные лоты</p>
+                <h3>Индивидуальные настройки</h3>
+                <p class="helper">Все персональные изменения галерей по объекту.</p>
+                <div class="individual-rules" id="image-individual-rules"></div>
+              </section>
             </aside>
           </div>
         </section>
@@ -199,6 +205,12 @@
               <div id="bulk-parameter-value"></div>
               <button class="button button-primary full-width" id="apply-parameter-bulk">Создать массовое правило</button>
               <div class="bulk-rules" id="parameter-bulk-rules"></div>
+              <section class="individual-rules-section">
+                <p class="eyebrow">Отдельные лоты</p>
+                <h3>Индивидуальные настройки</h3>
+                <p class="helper">Все параметры, назначенные конкретным квартирам.</p>
+                <div class="individual-rules" id="parameter-individual-rules"></div>
+              </section>
             </aside>
           </div>
         </section>
@@ -209,6 +221,12 @@
               <div class="panel-heading"><div><p class="eyebrow">Приоритет сверху вниз</p><h2>Правила</h2></div><button class="icon-button" id="add-rule" aria-label="Добавить акцию">+</button></div>
               <div class="rules-list" id="rules-list"></div>
               <p class="helper">Первое подходящее активное правило применяется к квартире.</p>
+              <section class="individual-rules-section">
+                <p class="eyebrow">Отдельные лоты</p>
+                <h3>Индивидуальные настройки</h3>
+                <p class="helper">Персональные назначения и исключения внутри правил акций.</p>
+                <div class="individual-rules" id="promotion-individual-rules"></div>
+              </section>
             </aside>
             <section class="panel editor-panel" id="rule-editor">
               <div class="empty-state">Выберите или создайте правило акции.</div>
@@ -234,6 +252,14 @@
                 <p class="image-upload-status" id="material-upload-status"></p>
               </div>
               <div class="asset-grid" id="asset-grid"></div>
+              <section class="palette-editor">
+                <div class="panel-heading"><div><p class="eyebrow">Палитра проекта</p><h2>Основной цвет макета</h2></div></div>
+                <p class="helper">Текущий основной цвет отмечен. Выберите другой из палитры или добавьте новый по HEX-коду.</p>
+                <div class="color-add-row">
+                  <label class="field"><span>Новый цвет</span><input id="new-brand-color" type="text" inputmode="text" maxlength="7" placeholder="#7E3FF2" autocomplete="off"></label>
+                  <button class="button button-secondary" id="add-brand-color" type="button">Добавить цвет</button>
+                </div>
+              </section>
               <div class="brand-palette" id="brand-palette"></div>
             </section>
             <aside class="panel asset-guide">

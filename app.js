@@ -14,7 +14,7 @@
     rules: [],
     imageSettings: { lot_overrides: {}, bulk_rules: [] },
     parameterSettings: { lot_values: {}, bulk_rules: [] },
-    materialSettings: { logo: '', key_render: '' },
+    materialSettings: { logo: '', key_render: '', primary_color: '', palette: [] },
     excludedLotIds: [],
     activeRuleId: null,
     activeView: 'dashboard',
@@ -50,6 +50,11 @@
   var safeColor = function (value) {
     return /^#[0-9a-f]{6}$/i.test(String(value || '')) ? String(value) : '#000000';
   };
+  var normalizeHexColor = function (value) {
+    var candidate = String(value || '').trim().toUpperCase();
+    if (/^[0-9A-F]{6}$/.test(candidate)) candidate = '#' + candidate;
+    return /^#[0-9A-F]{6}$/.test(candidate) ? candidate : '';
+  };
   var clone = function (value) { return JSON.parse(JSON.stringify(value)); };
   var cacheVersion = function () {
     return state.registry && state.registry.build_id ? String(state.registry.build_id) : 'development';
@@ -81,7 +86,7 @@
   };
   var emptyImageSettings = function () { return { lot_overrides: {}, bulk_rules: [] }; };
   var emptyParameterSettings = function () { return { lot_values: {}, bulk_rules: [] }; };
-  var emptyMaterialSettings = function () { return { logo: '', key_render: '' }; };
+  var emptyMaterialSettings = function () { return { logo: '', key_render: '', primary_color: '', palette: [] }; };
 
   function itemMatchesFilters(item, filters) {
     var search = String(filters.search || '').trim().toLowerCase();
@@ -134,12 +139,32 @@
   function normalizeMaterialSettings(value, assets) {
     var source = value && typeof value === 'object' ? value : {};
     var current = assets && assets.current && typeof assets.current === 'object' ? assets.current : {};
+    var brand = assets && assets.brand && typeof assets.brand === 'object' ? assets.brand : {};
     var items = assets && Array.isArray(assets.items) ? assets.items : [];
     var legacyLogo = items.find(function (item) { return item.key === 'logo'; });
     var legacyRender = items.find(function (item) { return item.key === 'key_render'; });
+    var fallbackPalette = Array.isArray(brand.palette) && brand.palette.length ? brand.palette : [
+      { name: 'Основной', value: brand.green },
+      { name: 'Акцент', value: brand.gold },
+      { name: 'Серый', value: brand.gray },
+      { name: 'Белый', value: brand.white }
+    ];
+    var sourcePalette = Array.isArray(source.palette) && source.palette.length ? source.palette : fallbackPalette;
+    var seen = new Set();
+    var palette = sourcePalette.map(function (color, index) {
+      var item = color && typeof color === 'object' ? color : { value: color };
+      var normalized = normalizeHexColor(item.value);
+      if (!normalized || seen.has(normalized)) return null;
+      seen.add(normalized);
+      return { name: String(item.name || ('Цвет ' + (index + 1))).slice(0, 48), value: normalized };
+    }).filter(Boolean);
+    var primary = normalizeHexColor(source.primary_color) || normalizeHexColor(brand.green) || (palette[0] && palette[0].value) || '#000000';
+    if (!seen.has(primary)) palette.unshift({ name: 'Основной', value: primary });
     return {
       logo: String(source.logo || current.logo || (legacyLogo && legacyLogo.filename) || ''),
-      key_render: String(source.key_render || current.key_render || (legacyRender && legacyRender.filename) || '')
+      key_render: String(source.key_render || current.key_render || (legacyRender && legacyRender.filename) || ''),
+      primary_color: primary,
+      palette: palette
     };
   }
 
@@ -266,6 +291,51 @@
     return state.rules.find(function (rule) { return rule.enabled && ruleMatches(item, rule, false); }) || null;
   }
 
+  function lotById(id) {
+    return state.inventory && state.inventory.items.find(function (item) { return String(item.id) === String(id); });
+  }
+
+  function lotCaption(id) {
+    var item = lotById(id);
+    return item ? item.house + ' · ' + item.rooms + 'к · ' + formatArea(item.area) : 'Нет в текущем фиде Profitbase';
+  }
+
+  function openIndividualLot(section, id) {
+    var item = lotById(id);
+    if (!item) {
+      showToast('Лота ID ' + id + ' уже нет в текущем фиде Profitbase. Настройку можно удалить из списка.');
+      return;
+    }
+    if (section === 'images') {
+      state.imageFilters = { house: '', rooms: '', floor: '', search: String(id) };
+      state.imageLotId = String(id);
+      $('#image-filter-house').value = '';
+      $('#image-filter-rooms').value = '';
+      $('#image-filter-floor').value = '';
+      $('#image-filter-search').value = String(id);
+      navigate('images');
+      renderImages();
+      $('#image-lot').focus();
+      return;
+    }
+    if (section === 'parameters') {
+      state.parameterFilters = { house: '', rooms: '', floor: '', search: String(id) };
+      state.parameterLotId = String(id);
+      $('#parameter-filter-house').value = '';
+      $('#parameter-filter-rooms').value = '';
+      $('#parameter-filter-floor').value = '';
+      $('#parameter-filter-search').value = String(id);
+      navigate('parameters');
+      renderParameters();
+      $('#parameter-lot').focus();
+      return;
+    }
+    state.previewId = String(id);
+    navigate('preview');
+    renderPreview();
+    $('#preview-lot').focus();
+  }
+
   function navigate(view) {
     state.activeView = view;
     $$('.nav-item').forEach(function (button) {
@@ -309,14 +379,14 @@
       if (state.materialSettings.logo === asset.filename) roles.push('Логотип');
       if (state.materialSettings.key_render === asset.filename) roles.push('Ключевой рендер');
       var status = roles.length ? 'Используется: ' + roles.join(' · ') : (asset.exists ? 'В библиотеке' : 'Файл отсутствует');
-      var actions = asset.exists ? '<div class="asset-actions">' +
+      var actionButtons = asset.exists ?
         (state.materialSettings.logo === asset.filename ? '' : '<button class="button button-secondary button-small" data-use-material="logo" data-material-file="' + esc(asset.filename) + '">Сделать логотипом</button>') +
-        (state.materialSettings.key_render === asset.filename ? '' : '<button class="button button-secondary button-small" data-use-material="key_render" data-material-file="' + esc(asset.filename) + '">Сделать рендером</button>') +
-        '</div>' : '';
-      return '<article class="asset-card ' + (roles.length ? 'active' : '') + '"><div class="asset-preview">' + preview + '</div><div class="asset-copy"><div><strong>' +
+        (state.materialSettings.key_render === asset.filename ? '' : '<button class="button button-secondary button-small" data-use-material="key_render" data-material-file="' + esc(asset.filename) + '">Сделать рендером</button>') : '';
+      var actions = actionButtons ? '<div class="asset-footer"><div class="asset-actions">' + actionButtons + '</div></div>' : '';
+      return '<article class="asset-card ' + (roles.length ? 'active' : '') + '"><div class="asset-preview">' + preview + '<div class="asset-copy"><div><strong>' +
         esc(asset.name) + '</strong><span class="asset-status ' + (roles.length ? 'active' : (asset.exists ? 'ready' : '')) + '">' +
         esc(status) + '</span></div><p>' + esc(asset.description || 'Загруженный фирменный материал объекта.') + '</p><code>' +
-        esc(asset.filename) + '</code>' + actions + '</div></article>';
+        esc(asset.filename) + '</code></div></div>' + actions + '</article>';
     }).join('');
     $$('[data-use-material]', $('#asset-grid')).forEach(function (button) {
       button.addEventListener('click', function () {
@@ -326,18 +396,66 @@
         showToast(button.dataset.useMaterial === 'logo' ? 'Выбран новый логотип' : 'Выбран новый ключевой рендер');
       });
     });
-    var palette = state.assets.brand.palette || [
-      { name: 'Основной', value: state.assets.brand.green },
-      { name: 'Акцент', value: state.assets.brand.gold },
-      { name: 'Серый', value: state.assets.brand.gray },
-      { name: 'Белый', value: state.assets.brand.white }
-    ];
+    var palette = state.materialSettings.palette || [];
+    var publishedPrimary = normalizeHexColor(state.assets.brand.green);
+    var selectedPrimary = normalizeHexColor(state.materialSettings.primary_color);
     $('#brand-palette').innerHTML = palette.map(function (color) {
       var value = safeColor(color.value);
-      return '<div class="palette-item"><span class="palette-swatch" style="background:' + value + '"></span><div><strong>' +
-        esc(color.name) + '</strong><code>' + esc(value.toUpperCase()) + '</code></div></div>';
+      var isPublished = value.toUpperCase() === publishedPrimary;
+      var isSelected = value.toUpperCase() === selectedPrimary;
+      var status = isPublished && isSelected ? 'Используется' : isPublished ? 'Используется сейчас' : isSelected ? 'Выбран после публикации' : '';
+      var actions = '<div class="palette-actions">' +
+        (isSelected ? '' : '<button data-use-brand-color="' + esc(value.toUpperCase()) + '">Сделать основным</button>') +
+        (!isPublished && !isSelected ? '<button class="danger" data-delete-brand-color="' + esc(value.toUpperCase()) + '">Удалить</button>' : '') +
+        '</div>';
+      return '<div class="palette-item ' + (isSelected ? 'selected' : '') + ' ' + (isPublished ? 'published' : '') + '"><span class="palette-swatch" style="background:' +
+        value + '"></span><div class="palette-copy"><strong>' + esc(color.name) + '</strong><code>' + esc(value.toUpperCase()) + '</code>' +
+        (status ? '<span class="palette-status">' + esc(status) + '</span>' : '') + '</div>' + actions + '</div>';
     }).join('');
+    $$('[data-use-brand-color]', $('#brand-palette')).forEach(function (button) {
+      button.addEventListener('click', function () {
+        state.materialSettings.primary_color = button.dataset.useBrandColor;
+        setDirty(true);
+        renderAssets();
+        showToast('Выбран новый основной цвет. Он применится после публикации.');
+      });
+    });
+    $$('[data-delete-brand-color]', $('#brand-palette')).forEach(function (button) {
+      button.addEventListener('click', function () {
+        var value = button.dataset.deleteBrandColor;
+        if (!window.confirm('Удалить цвет ' + value + ' из палитры проекта?')) return;
+        state.materialSettings.palette = state.materialSettings.palette.filter(function (color) {
+          return normalizeHexColor(color.value) !== value;
+        });
+        setDirty(true);
+        renderAssets();
+      });
+    });
     renderMaterialUploadState();
+  }
+
+  function addBrandColor() {
+    var input = $('#new-brand-color');
+    var value = normalizeHexColor(input.value);
+    if (!value) {
+      showToast('Укажите цвет в формате #RRGGBB, например #7E3FF2.');
+      input.focus();
+      return;
+    }
+    if (state.materialSettings.palette.some(function (color) { return normalizeHexColor(color.value) === value; })) {
+      showToast('Такой цвет уже есть в палитре проекта.');
+      input.focus();
+      return;
+    }
+    if (state.materialSettings.palette.length >= 24) {
+      showToast('В палитре может быть не более 24 цветов.');
+      return;
+    }
+    state.materialSettings.palette.push({ name: 'Пользовательский цвет', value: value });
+    input.value = '';
+    setDirty(true);
+    renderAssets();
+    showToast('Цвет добавлен. Теперь его можно сделать основным.');
   }
 
   function renderStats() {
@@ -778,6 +896,38 @@
     });
   }
 
+  function renderImageIndividualRules() {
+    var root = $('#image-individual-rules');
+    if (!root) return;
+    var entries = Object.keys(state.imageSettings.lot_overrides || {}).map(function (id) {
+      return { id: String(id), override: state.imageSettings.lot_overrides[id] || {} };
+    }).filter(function (entry) {
+      return (entry.override.order || []).length || (entry.override.hidden || []).length || (entry.override.added || []).length;
+    }).sort(function (left, right) { return left.id.localeCompare(right.id, 'ru', { numeric: true }); });
+    root.innerHTML = entries.length ? entries.map(function (entry) {
+      var parts = [];
+      if ((entry.override.order || []).length) parts.push('изменён порядок');
+      if ((entry.override.hidden || []).length) parts.push('скрыто: ' + entry.override.hidden.length);
+      if ((entry.override.added || []).length) parts.push('добавлено: ' + entry.override.added.length);
+      return '<div class="individual-rule"><div class="individual-rule-copy"><strong>ID ' + esc(entry.id) + '</strong><small>' +
+        esc(lotCaption(entry.id)) + '</small><span>' + esc(parts.join(' · ')) + '</span></div><div class="individual-rule-actions">' +
+        '<button data-open-image-individual="' + esc(entry.id) + '">Открыть</button><button class="danger" data-delete-image-individual="' +
+        esc(entry.id) + '">Удалить</button></div></div>';
+    }).join('') : '<p class="helper empty-rule-list">Индивидуальных настроек пока нет.</p>';
+    $$('[data-open-image-individual]', root).forEach(function (button) {
+      button.addEventListener('click', function () { openIndividualLot('images', button.dataset.openImageIndividual); });
+    });
+    $$('[data-delete-image-individual]', root).forEach(function (button) {
+      button.addEventListener('click', function () {
+        var id = button.dataset.deleteImageIndividual;
+        if (!window.confirm('Удалить все индивидуальные настройки изображений для лота ID ' + id + '?')) return;
+        delete state.imageSettings.lot_overrides[id];
+        setDirty(true);
+        renderImages();
+      });
+    });
+  }
+
   function renderImages() {
     if (!state.inventory) return;
     var filtered = filteredImageItems();
@@ -792,6 +942,7 @@
       $('#image-gallery').innerHTML = '<div class="parameter-empty">По выбранным фильтрам квартир нет.</div>';
       $('#removed-images-wrap').classList.add('hidden');
       renderImageBulkRules();
+      renderImageIndividualRules();
       renderImageUploadState();
       return;
     }
@@ -873,6 +1024,7 @@
       });
     });
     renderImageBulkRules();
+    renderImageIndividualRules();
     renderImageUploadState();
   }
 
@@ -945,6 +1097,34 @@
     });
   }
 
+  function renderParameterIndividualRules() {
+    var root = $('#parameter-individual-rules');
+    if (!root) return;
+    var entries = Object.keys(state.parameterSettings.lot_values || {}).map(function (id) {
+      return { id: String(id), values: state.parameterSettings.lot_values[id] || {} };
+    }).filter(function (entry) { return Object.keys(entry.values).length; })
+      .sort(function (left, right) { return left.id.localeCompare(right.id, 'ru', { numeric: true }); });
+    root.innerHTML = entries.length ? entries.map(function (entry) {
+      var labels = Object.keys(entry.values).map(function (tag) { return (parameterByTag(tag) || { name: tag }).name; });
+      return '<div class="individual-rule"><div class="individual-rule-copy"><strong>ID ' + esc(entry.id) + '</strong><small>' +
+        esc(lotCaption(entry.id)) + '</small><span>' + esc(labels.join(', ')) + '</span></div><div class="individual-rule-actions">' +
+        '<button data-open-parameter-individual="' + esc(entry.id) + '">Открыть</button><button class="danger" data-delete-parameter-individual="' +
+        esc(entry.id) + '">Удалить</button></div></div>';
+    }).join('') : '<p class="helper empty-rule-list">Индивидуальных настроек пока нет.</p>';
+    $$('[data-open-parameter-individual]', root).forEach(function (button) {
+      button.addEventListener('click', function () { openIndividualLot('parameters', button.dataset.openParameterIndividual); });
+    });
+    $$('[data-delete-parameter-individual]', root).forEach(function (button) {
+      button.addEventListener('click', function () {
+        var id = button.dataset.deleteParameterIndividual;
+        if (!window.confirm('Удалить все индивидуальные параметры для лота ID ' + id + '?')) return;
+        delete state.parameterSettings.lot_values[id];
+        setDirty(true);
+        renderParameters();
+      });
+    });
+  }
+
   function renderParameters() {
     if (!state.inventory) return;
     var tagCounts = state.inventory.source_tag_counts || {};
@@ -974,6 +1154,7 @@
       $('#parameter-list').innerHTML = '<div class="parameter-empty">По выбранным фильтрам квартир нет.</div>';
       renderParameterBulkValue();
       renderParameterBulkRules();
+      renderParameterIndividualRules();
       return;
     }
     var values = effectiveParameters(item);
@@ -1006,6 +1187,7 @@
     });
     renderParameterBulkValue();
     renderParameterBulkRules();
+    renderParameterIndividualRules();
   }
 
   function renderRuleList() {
@@ -1023,6 +1205,52 @@
         state.activeRuleId = button.dataset.ruleId;
         renderRuleList();
         renderRuleEditor();
+      });
+    });
+    renderPromotionIndividualRules();
+  }
+
+  function renderPromotionIndividualRules() {
+    var root = $('#promotion-individual-rules');
+    if (!root) return;
+    var entries = [];
+    state.rules.forEach(function (rule) {
+      (rule.include_ids || []).forEach(function (id) { entries.push({ id: String(id), rule: rule, kind: 'include' }); });
+      (rule.exclude_ids || []).forEach(function (id) { entries.push({ id: String(id), rule: rule, kind: 'exclude' }); });
+    });
+    entries.sort(function (left, right) { return left.id.localeCompare(right.id, 'ru', { numeric: true }); });
+    root.innerHTML = entries.length ? entries.map(function (entry) {
+      var action = entry.kind === 'include' ? 'индивидуально назначена' : 'исключён из акции';
+      return '<div class="individual-rule"><div class="individual-rule-copy"><strong>ID ' + esc(entry.id) + '</strong><small>' +
+        esc(lotCaption(entry.id)) + '</small><span>' + esc(entry.rule.name + ' · ' + action) + '</span></div><div class="individual-rule-actions">' +
+        '<button data-open-promotion-individual="' + esc(entry.id) + '">Открыть</button><button class="danger" data-delete-promotion-individual="' +
+        esc(entry.rule.id) + '" data-lot-id="' + esc(entry.id) + '" data-kind="' + esc(entry.kind) + '">Удалить</button></div></div>';
+    }).join('') : '<p class="helper empty-rule-list">Индивидуальных настроек пока нет.</p>';
+    $$('[data-open-promotion-individual]', root).forEach(function (button) {
+      button.addEventListener('click', function () { openIndividualLot('promotions', button.dataset.openPromotionIndividual); });
+    });
+    $$('[data-delete-promotion-individual]', root).forEach(function (button) {
+      button.addEventListener('click', function () {
+        var rule = state.rules.find(function (item) { return item.id === button.dataset.deletePromotionIndividual; });
+        if (!rule) return;
+        var id = button.dataset.lotId;
+        var kind = button.dataset.kind;
+        var warning = kind === 'exclude'
+          ? 'Удалить исключение для лота ID ' + id + '? После публикации акция снова сможет применяться к нему.'
+          : 'Удалить индивидуальное назначение акции для лота ID ' + id + '?';
+        if (!window.confirm(warning)) return;
+        if (kind === 'include') {
+          if ((rule.include_ids || []).length <= 1) {
+            state.rules = state.rules.filter(function (item) { return item.id !== rule.id; });
+            if (state.activeRuleId === rule.id) state.activeRuleId = state.rules[0] ? state.rules[0].id : null;
+          } else {
+            rule.include_ids = rule.include_ids.filter(function (value) { return String(value) !== id; });
+          }
+        } else {
+          rule.exclude_ids = rule.exclude_ids.filter(function (value) { return String(value) !== id; });
+        }
+        setDirty(true);
+        renderAll();
       });
     });
   }
@@ -1254,6 +1482,12 @@
     if (!state.materialSettings.logo || !state.materialSettings.key_render) return 'Выберите логотип и ключевой рендер.';
     var materialFiles = new Set((state.assets && state.assets.items || []).filter(function (asset) { return asset.exists; }).map(function (asset) { return asset.filename; }));
     if (!materialFiles.has(state.materialSettings.logo) || !materialFiles.has(state.materialSettings.key_render)) return 'Один из выбранных материалов недоступен.';
+    var primaryColor = normalizeHexColor(state.materialSettings.primary_color);
+    if (!primaryColor) return 'Выберите корректный основной цвет проекта.';
+    if (!Array.isArray(state.materialSettings.palette) || !state.materialSettings.palette.length || state.materialSettings.palette.length > 24) return 'Палитра должна содержать от 1 до 24 цветов.';
+    var paletteColors = state.materialSettings.palette.map(function (color) { return normalizeHexColor(color && color.value); });
+    if (paletteColors.some(function (color) { return !color; }) || new Set(paletteColors).size !== paletteColors.length) return 'В палитре есть некорректные или повторяющиеся цвета.';
+    if (paletteColors.indexOf(primaryColor) < 0) return 'Основной цвет должен присутствовать в палитре проекта.';
     for (var i = 0; i < state.rules.length; i += 1) {
       var rule = state.rules[i];
       if (!rule.name.trim()) return 'У правила ' + (i + 1) + ' нет названия.';
@@ -1286,7 +1520,8 @@
       Object.keys(state.imageSettings.lot_overrides).length + ' индивидуальных галерей и ' + state.imageSettings.bulk_rules.length + ' массовых правил изображений.<br>' +
       Object.keys(state.parameterSettings.lot_values).length + ' квартир с дополнительными параметрами и ' + state.parameterSettings.bulk_rules.length + ' массовых правил параметров.<br>' +
       '<strong>' + state.excludedLotIds.length + ' лотов исключено из результирующего XML.</strong><br>' +
-      'Логотип: <strong>' + esc(state.materialSettings.logo) + '</strong><br>Ключевой рендер: <strong>' + esc(state.materialSettings.key_render) + '</strong>.' +
+      'Логотип: <strong>' + esc(state.materialSettings.logo) + '</strong><br>Ключевой рендер: <strong>' + esc(state.materialSettings.key_render) + '</strong>.<br>' +
+      'Основной цвет: <strong>' + esc(state.materialSettings.primary_color) + '</strong> · ' + state.materialSettings.palette.length + ' цветов в палитре.' +
       (state.pendingUploadDeletions.length ? '<br><strong>' + state.pendingUploadDeletions.length + ' загруженных файлов будут физически удалены после публикации.</strong>' : '');
     $('#publish-modal').classList.remove('hidden');
   }
@@ -1446,6 +1681,13 @@
     materialDropZone.addEventListener('drop', function (event) {
       var file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
       if (file && uploadServiceUrl()) uploadMaterialFile(file);
+    });
+    $('#add-brand-color').addEventListener('click', addBrandColor);
+    $('#new-brand-color').addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        addBrandColor();
+      }
     });
     $('#add-image-url').addEventListener('click', function () {
       var item = state.inventory.items.find(function (lot) { return lot.id === state.imageLotId; });

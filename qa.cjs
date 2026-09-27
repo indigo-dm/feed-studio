@@ -76,6 +76,7 @@ const contentTypes = {
   });
   await page.route('https://assets.example.test/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNkYGD4z8DAwMDAxAADAAwBAQDJxQ8AAAAASUVORK5CYII=', 'base64') }));
   await page.route('https://indigo-dm.github.io/novyy-gorizont-feed/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNkYGD4z8DAwMDAxAADAAwBAQDJxQ8AAAAASUVORK5CYII=', 'base64') }));
+  await page.route('https://pb12296.profitbase.ru/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNkYGD4z8DAwMDAxAADAAwBAQDJxQ8AAAAASUVORK5CYII=', 'base64') }));
 
   await page.goto('http://localhost/#assets', { waitUntil: 'networkidle' });
   const publicFeedHref = await page.locator('#full-feed-link').getAttribute('href');
@@ -98,10 +99,65 @@ const contentTypes = {
   await page.waitForFunction(() => document.querySelector('#material-upload-status')?.textContent.includes('Материал загружен'));
   const cardsAfterUpload = await page.locator('.asset-card').count();
   await page.locator('[data-use-material="logo"][data-material-file="uploads/mat-qa-new.png"]').click();
+  const initialPaletteCount = await page.locator('#brand-palette .palette-item').count();
+  const currentPaletteMarkers = await page.locator('#brand-palette .palette-status', { hasText: 'Используется' }).count();
+  await page.locator('#new-brand-color').fill('#123ABC');
+  await page.locator('#add-brand-color').click();
+  const paletteAfterAdd = await page.locator('#brand-palette .palette-item').count();
+  await page.locator('[data-use-brand-color="#123ABC"]').click();
+  const selectedColorStatus = await page.locator('#brand-palette .palette-item.selected .palette-status').innerText();
+  const publishedColorDeleteButtons = await page.locator('#brand-palette .palette-item.published [data-delete-brand-color]').count();
+  const removedColor = await page.locator('#brand-palette [data-delete-brand-color]').first().getAttribute('data-delete-brand-color');
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#brand-palette [data-delete-brand-color]').first().click();
+  const paletteAfterDelete = await page.locator('#brand-palette .palette-item').count();
+
+  await page.locator('[data-view="images"]').click();
+  const imageIndividualBefore = await page.locator('#image-individual-rules .individual-rule').count();
+  const imageIndividualId = await page.locator('#image-individual-rules [data-open-image-individual]').first().getAttribute('data-open-image-individual');
+  await page.locator('#image-individual-rules [data-open-image-individual]').first().click();
+  const openedImageLot = await page.locator('#image-lot').inputValue();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#image-individual-rules [data-delete-image-individual]').first().click();
+  const imageIndividualAfter = await page.locator('#image-individual-rules .individual-rule').count();
+
+  await page.locator('[data-view="parameters"]').click();
+  const parameterLotId = await page.locator('#parameter-lot').inputValue();
+  await page.locator('#add-parameter').click();
+  const parameterIndividualBefore = await page.locator('#parameter-individual-rules .individual-rule').count();
+  await page.locator('#parameter-individual-rules [data-open-parameter-individual]').first().click();
+  const openedParameterLot = await page.locator('#parameter-lot').inputValue();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#parameter-individual-rules [data-delete-parameter-individual]').first().click();
+  const parameterIndividualAfter = await page.locator('#parameter-individual-rules .individual-rule').count();
+
+  await page.locator('[data-view="promotions"]').click();
+  const promotionLotId = await page.locator('[data-exclude]').first().getAttribute('data-exclude');
+  await page.locator('[data-exclude]').first().click();
+  const promotionIndividualBefore = await page.locator('#promotion-individual-rules .individual-rule').count();
+  await page.locator('#promotion-individual-rules [data-open-promotion-individual]').first().click();
+  const openedPromotionLot = await page.locator('#preview-lot').inputValue();
+  await page.locator('[data-view="promotions"]').click();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#promotion-individual-rules [data-delete-promotion-individual]').first().click();
+  const promotionIndividualAfter = await page.locator('#promotion-individual-rules .individual-rule').count();
+
+  await page.locator('[data-view="assets"]').click();
+  const materialOverlay = await page.locator('.asset-card').first().evaluate((card) => {
+    const preview = card.querySelector('.asset-preview');
+    const copy = card.querySelector('.asset-copy');
+    const style = copy ? getComputedStyle(copy) : null;
+    return Boolean(preview && copy && copy.parentElement === preview && style.position === 'absolute' && style.backgroundImage.includes('linear-gradient'));
+  });
   await page.screenshot({ path: path.join(os.tmpdir(), 'feed-studio-materials-qa.png'), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(100);
-  const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  const mobileOverflowByView = {};
+  for (const view of ['images', 'parameters', 'promotions', 'assets']) {
+    await page.locator(`[data-view="${view}"]`).click();
+    mobileOverflowByView[view] = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  }
+  const mobileOverflow = Math.max(...Object.values(mobileOverflowByView));
   const mobileMaterialActions = await page.locator('.asset-actions .button').count();
   await page.locator('[data-view="lots"]').click();
   const excludedLotId = await page.locator('[data-toggle-feed-lot]').first().getAttribute('data-toggle-feed-lot');
@@ -112,13 +168,30 @@ const contentTypes = {
   await page.waitForFunction(() => window.localStorage.getItem('feed-studio-publish-v1-novyy-gorizont'));
 
   const result = {
-    ok: errors.length === 0 && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 3 && activeBefore === 2 && selectedLibrary.some((text) => text.includes('Ключевой рендер')) && cardsAfterUpload === initialCards + 1 && mobileOverflow <= 1 && mobileMaterialActions > 0 && excludedCardMarked === 1 && submitted && submitted.version === 3 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp',
+    ok: errors.length === 0 && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 3 && activeBefore === 2 && selectedLibrary.some((text) => text.includes('Ключевой рендер')) && cardsAfterUpload === initialCards + 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 1 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.toLowerCase().includes('после публикации') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && parameterIndividualBefore === 1 && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && excludedCardMarked === 1 && submitted && submitted.version === 3 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor),
     errors,
     public_feed_href: publicFeedHref,
     initial_cards: initialCards,
     active_before: activeBefore,
     cards_after_upload: cardsAfterUpload,
+    material_overlay: materialOverlay,
+    palette: {
+      initial: initialPaletteCount,
+      current_markers: currentPaletteMarkers,
+      after_add: paletteAfterAdd,
+      after_delete: paletteAfterDelete,
+      selected: submitted && submitted.material_settings.primary_color,
+      selected_status: selectedColorStatus,
+      published_delete_buttons: publishedColorDeleteButtons,
+      removed: removedColor
+    },
+    individual_rules: {
+      images: { before: imageIndividualBefore, opened: openedImageLot, after: imageIndividualAfter },
+      parameters: { before: parameterIndividualBefore, opened: openedParameterLot, after: parameterIndividualAfter },
+      promotions: { before: promotionIndividualBefore, opened: openedPromotionLot, after: promotionIndividualAfter }
+    },
     mobile_overflow_px: mobileOverflow,
+    mobile_overflow_by_view: mobileOverflowByView,
     mobile_material_actions: mobileMaterialActions,
     excluded_lot_id: excludedLotId,
     excluded_card_marked: excludedCardMarked,
