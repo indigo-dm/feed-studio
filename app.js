@@ -15,6 +15,7 @@
     imageSettings: { lot_overrides: {}, bulk_rules: [] },
     parameterSettings: { lot_values: {}, bulk_rules: [] },
     materialSettings: { logo: '', key_render: '', primary_color: '', palette: [] },
+    publishedMaterialSettings: { logo: '', key_render: '', primary_color: '', palette: [] },
     excludedLotIds: [],
     activeRuleId: null,
     activeView: 'dashboard',
@@ -393,7 +394,7 @@
         state.materialSettings[button.dataset.useMaterial] = button.dataset.materialFile;
         setDirty(true);
         renderAssets();
-        showToast(button.dataset.useMaterial === 'logo' ? 'Выбран новый логотип' : 'Выбран новый ключевой рендер');
+        showToast(button.dataset.useMaterial === 'logo' ? 'Логотип выбран и уже доступен в предпросмотре' : 'Рендер выбран и уже доступен в предпросмотре');
       });
     });
     var palette = state.materialSettings.palette || [];
@@ -417,7 +418,7 @@
         state.materialSettings.primary_color = button.dataset.useBrandColor;
         setDirty(true);
         renderAssets();
-        showToast('Выбран новый основной цвет. Он применится после публикации.');
+        showToast('Цвет виден в предпросмотре сразу, а в фиде применится после публикации.');
       });
     });
     $$('[data-delete-brand-color]', $('#brand-palette')).forEach(function (button) {
@@ -1367,7 +1368,7 @@
     var item = state.inventory.items.find(function (lot) { return lot.id === state.previewId; }) || state.inventory.items[0];
     state.previewId = item.id;
     $('#preview-lot').value = item.id;
-    $('#preview-image').src = versionedUrl(item.image);
+    renderMaterialPreview(item);
     $('#preview-title').textContent = item.rooms + '-комнатная, ' + formatArea(item.area);
     $('#preview-details').innerHTML =
       '<div><dt>Дом</dt><dd>' + esc(item.house) + '</dd></div><div><dt>ID</dt><dd>' + esc(item.id) + '</dd></div>' +
@@ -1384,6 +1385,150 @@
     } else {
       $('#applied-rule').innerHTML = '<span>Акция</span><strong>К этой квартире не применяется</strong>';
     }
+  }
+
+  var materialPreviewToken = 0;
+
+  function materialPreviewSnapshot(settings) {
+    var source = settings || emptyMaterialSettings();
+    return {
+      logo: String(source.logo || ''),
+      key_render: String(source.key_render || ''),
+      primary_color: normalizeHexColor(source.primary_color)
+    };
+  }
+
+  function hasPendingMaterialPreview() {
+    return JSON.stringify(materialPreviewSnapshot(state.materialSettings)) !==
+      JSON.stringify(materialPreviewSnapshot(state.publishedMaterialSettings));
+  }
+
+  function materialAsset(filename) {
+    return state.assets && (state.assets.items || []).find(function (asset) {
+      return asset.exists && asset.filename === filename;
+    });
+  }
+
+  function previewImage(url) {
+    return new Promise(function (resolve) {
+      if (!url) return resolve(null);
+      var image = new Image();
+      image.onload = function () { resolve(image); };
+      image.onerror = function () { resolve(null); };
+      image.src = versionedUrl(url);
+    });
+  }
+
+  function darkerColor(value, factor) {
+    var normalized = normalizeHexColor(value) || '#000000';
+    var channels = [1, 3, 5].map(function (offset) {
+      return Math.max(0, Math.min(255, Math.round(parseInt(normalized.slice(offset, offset + 2), 16) * factor)));
+    });
+    return '#' + channels.map(function (channel) { return channel.toString(16).padStart(2, '0'); }).join('');
+  }
+
+  function drawContained(context, image, x, y, width, height, padding) {
+    if (!image) return;
+    var inset = Number(padding || 0);
+    var scale = Math.min((width - inset * 2) / image.naturalWidth, (height - inset * 2) / image.naturalHeight);
+    var targetWidth = image.naturalWidth * scale;
+    var targetHeight = image.naturalHeight * scale;
+    context.drawImage(image, x + (width - targetWidth) / 2, y + (height - targetHeight) / 2, targetWidth, targetHeight);
+  }
+
+  function drawCovered(context, image, x, y, width, height) {
+    if (!image) return;
+    var scale = Math.max(width / image.naturalWidth, height / image.naturalHeight);
+    var sourceWidth = width / scale;
+    var sourceHeight = height / scale;
+    context.drawImage(image, (image.naturalWidth - sourceWidth) / 2, (image.naturalHeight - sourceHeight) / 2,
+      sourceWidth, sourceHeight, x, y, width, height);
+  }
+
+  function canvasText(context, value, x, y, font, color, align) {
+    context.font = font;
+    context.fillStyle = color;
+    context.textAlign = align || 'left';
+    context.textBaseline = 'alphabetic';
+    context.fillText(String(value || ''), x, y);
+  }
+
+  async function drawMaterialPreview(canvas, item, token) {
+    var logo = materialAsset(state.materialSettings.logo);
+    var keyRender = materialAsset(state.materialSettings.key_render);
+    var plan = item.source_images && item.source_images[0] ? item.source_images[0].url : '';
+    var loaded = await Promise.all([
+      previewImage(logo && logo.url),
+      previewImage(keyRender && keyRender.url),
+      previewImage(plan)
+    ]);
+    if (token !== materialPreviewToken) return;
+    var context = canvas.getContext('2d');
+    var primary = normalizeHexColor(state.materialSettings.primary_color) || '#00605C';
+    var dark = darkerColor(primary, 0.78);
+    var accent = safeColor(state.assets && state.assets.brand && state.assets.brand.gold || '#CEAD75');
+    var muted = safeColor(state.assets && state.assets.brand && state.assets.brand.gray || '#9B9B9B');
+    var gradient = context.createLinearGradient(0, 0, 1200, 900);
+    gradient.addColorStop(0, primary);
+    gradient.addColorStop(1, dark);
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, 1200, 900);
+
+    drawContained(context, loaded[0], 56, 54, 350, 111, 2);
+    context.strokeStyle = accent;
+    context.lineWidth = 2;
+    context.strokeRect(56, 235, 470, 405);
+    drawCovered(context, loaded[1], 64, 243, 454, 389);
+
+    context.fillStyle = 'rgba(255,255,255,.08)';
+    context.fillRect(56, 180, 145, 42);
+    canvasText(context, String(item.house || '').toUpperCase(), 74, 208, '700 19px Manrope, Arial', '#FFFFFF');
+    canvasText(context, String(item.rooms || '') + '-КОМНАТНАЯ КВАРТИРА', 56, 696, '800 28px Manrope, Arial', '#FFFFFF');
+    canvasText(context, item.decoration || 'Без отделки', 56, 732, '500 18px Manrope, Arial', 'rgba(255,255,255,.78)');
+    context.fillStyle = accent;
+    context.fillRect(56, 754, 405, 92);
+    canvasText(context, formatPrice(item.price), 258, 814, '800 36px Manrope, Arial', dark, 'center');
+
+    context.fillStyle = '#FFFFFF';
+    context.fillRect(584, 54, 560, 792);
+    drawContained(context, loaded[2], 614, 78, 500, 606, 8);
+    context.fillStyle = '#DFE5E3';
+    context.fillRect(614, 698, 500, 1);
+    var centers = [690, 860, 1030];
+    var labels = ['КОМНАТ', 'ПЛОЩАДЬ', 'ЭТАЖ'];
+    var values = [String(item.rooms || ''), formatArea(item.area), String(item.floor || '') + '/' + String(item.floors || '')];
+    centers.forEach(function (center, index) {
+      canvasText(context, labels[index], center, 758, '600 16px Manrope, Arial', muted, 'center');
+      canvasText(context, values[index], center, 812, '800 38px Manrope, Arial', primary, 'center');
+    });
+    context.fillStyle = '#DFE5E3';
+    context.fillRect(775, 730, 1, 84);
+    context.fillRect(945, 730, 1, 84);
+    canvas.classList.remove('hidden');
+    $('#preview-image').classList.add('hidden');
+    $('#preview-material-note').classList.remove('hidden');
+  }
+
+  function renderMaterialPreview(item) {
+    var image = $('#preview-image');
+    var canvas = $('#preview-live-card');
+    var note = $('#preview-material-note');
+    materialPreviewToken += 1;
+    var token = materialPreviewToken;
+    image.src = versionedUrl(item.image);
+    if (!hasPendingMaterialPreview()) {
+      image.classList.remove('hidden');
+      canvas.classList.add('hidden');
+      note.classList.add('hidden');
+      return;
+    }
+    image.classList.remove('hidden');
+    canvas.classList.add('hidden');
+    note.classList.add('hidden');
+    canvas.dataset.logo = state.materialSettings.logo;
+    canvas.dataset.render = state.materialSettings.key_render;
+    canvas.dataset.color = normalizeHexColor(state.materialSettings.primary_color);
+    drawMaterialPreview(canvas, item, token);
   }
 
   function renderAll() {
@@ -1818,7 +1963,8 @@
       state.rules = draft && Array.isArray(draft.rules) ? draft.rules.map(normalizeRule) : publishedRules;
       state.imageSettings = normalizeImageSettings(draft && draft.image_settings != null ? draft.image_settings : data[1].image_settings || emptyImageSettings());
       state.parameterSettings = normalizeParameterSettings(draft && draft.parameter_settings != null ? draft.parameter_settings : data[1].parameter_settings || emptyParameterSettings());
-      state.materialSettings = normalizeMaterialSettings(draft && draft.material_settings != null ? draft.material_settings : data[1].material_settings || emptyMaterialSettings(), state.assets);
+      state.publishedMaterialSettings = normalizeMaterialSettings(data[1].material_settings || emptyMaterialSettings(), state.assets);
+      state.materialSettings = normalizeMaterialSettings(draft && draft.material_settings != null ? draft.material_settings : state.publishedMaterialSettings, state.assets);
       var availableLotIds = new Set(state.inventory.items.map(function (item) { return String(item.id); }));
       state.excludedLotIds = Array.from(new Set((draft && Array.isArray(draft.excluded_lot_ids) ? draft.excluded_lot_ids : data[1].excluded_lot_ids || []).map(String)))
         .filter(function (id) { return availableLotIds.has(id); });

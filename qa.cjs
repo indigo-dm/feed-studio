@@ -112,6 +112,18 @@ const contentTypes = {
   await page.locator('#brand-palette [data-delete-brand-color]').first().click();
   const paletteAfterDelete = await page.locator('#brand-palette .palette-item').count();
 
+  await page.locator('[data-view="preview"]').click();
+  await page.waitForFunction(() => !document.querySelector('#preview-live-card')?.classList.contains('hidden'));
+  const liveMaterialPreview = await page.locator('#preview-live-card').evaluate((canvas) => ({
+    visible: !canvas.classList.contains('hidden'),
+    logo: canvas.dataset.logo,
+    render: canvas.dataset.render,
+    color: canvas.dataset.color,
+    publishedImageHidden: document.querySelector('#preview-image')?.classList.contains('hidden'),
+    noteVisible: !document.querySelector('#preview-material-note')?.classList.contains('hidden')
+  }));
+  await page.locator('#preview-canvas').screenshot({ path: path.join(os.tmpdir(), 'feed-studio-live-material-preview-qa.png') });
+
   await page.locator('[data-view="images"]').click();
   const imageIndividualBefore = await page.locator('#image-individual-rules .individual-rule').count();
   const imageIndividualId = await page.locator('#image-individual-rules [data-open-image-individual]').first().getAttribute('data-open-image-individual');
@@ -173,13 +185,14 @@ const contentTypes = {
   await page.waitForFunction(() => window.localStorage.getItem('feed-studio-publish-v1-novyy-gorizont'));
 
   const result = {
-    ok: errors.length === 0 && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 3 && activeBefore === 2 && selectedLibrary.some((text) => text.includes('Ключевой рендер')) && cardsAfterUpload === initialCards + 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 1 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.toLowerCase().includes('после публикации') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && parameterIndividualBefore === 1 && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && excludedCardMarked === 1 && submitted && submitted.version === 3 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor),
+    ok: errors.length === 0 && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 3 && activeBefore === 2 && selectedLibrary.some((text) => text.includes('Ключевой рендер')) && cardsAfterUpload === initialCards + 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 1 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.toLowerCase().includes('после публикации') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.color === '#123ABC' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && parameterIndividualBefore === 1 && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && excludedCardMarked === 1 && submitted && submitted.version === 3 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor),
     errors,
     public_feed_href: publicFeedHref,
     initial_cards: initialCards,
     active_before: activeBefore,
     cards_after_upload: cardsAfterUpload,
     material_overlay: materialOverlay,
+    live_material_preview: liveMaterialPreview,
     bulk_parameter_gap_px: bulkParameterGap,
     palette: {
       initial: initialPaletteCount,
