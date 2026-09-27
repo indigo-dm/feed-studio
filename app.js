@@ -12,11 +12,16 @@
     status: null,
     assets: null,
     rules: [],
+    publishedRules: [],
     imageSettings: { lot_overrides: {}, bulk_rules: [] },
+    publishedImageSettings: { lot_overrides: {}, bulk_rules: [] },
     parameterSettings: { lot_values: {}, bulk_rules: [] },
+    publishedParameterSettings: { lot_values: {}, bulk_rules: [] },
     materialSettings: { logo: '', key_render: '', primary_color: '', palette: [] },
     publishedMaterialSettings: { logo: '', key_render: '', primary_color: '', palette: [] },
     excludedLotIds: [],
+    publishedExcludedLotIds: [],
+    changeReviewItems: [],
     activeRuleId: null,
     activeView: 'dashboard',
     filters: { house: '', rooms: '', floor: '', search: '' },
@@ -259,6 +264,7 @@
       }
     }
     renderSavedState();
+    renderUnsavedChangeButton();
   }
 
   function saveDraft(showMessage) {
@@ -274,7 +280,242 @@
     state.dirty = false;
     state.draftSaved = true;
     renderSavedState();
+    renderUnsavedChangeButton();
     if (showMessage) showToast('Черновик сохранён в этом браузере');
+  }
+
+  function sameValue(left, right) {
+    return JSON.stringify(left) === JSON.stringify(right);
+  }
+
+  function lotChangeLabel(lotId) {
+    var item = state.inventory && state.inventory.items.find(function (lot) { return String(lot.id) === String(lotId); });
+    return item ? item.house + ' · ' + item.rooms + 'к · ID ' + item.id : 'ID ' + lotId;
+  }
+
+  function commonOrderChanged(current, published) {
+    var currentIds = current.map(function (item) { return String(item.id); });
+    var publishedIds = published.map(function (item) { return String(item.id); });
+    var currentSet = new Set(currentIds);
+    var publishedSet = new Set(publishedIds);
+    return !sameValue(
+      currentIds.filter(function (id) { return publishedSet.has(id); }),
+      publishedIds.filter(function (id) { return currentSet.has(id); })
+    );
+  }
+
+  function collectUnsavedChanges() {
+    if (!state.project) return [];
+    var changes = [];
+    var add = function (kind, key, category, title, detail) {
+      changes.push({ id: kind + '::' + key, kind: kind, key: String(key), category: category, title: title, detail: detail });
+    };
+    var collectArrayEntries = function (current, published, kind, category, titleFor, detailFor) {
+      var currentById = new Map(current.map(function (item) { return [String(item.id), item]; }));
+      var publishedById = new Map(published.map(function (item) { return [String(item.id), item]; }));
+      var ids = new Set(Array.from(currentById.keys()).concat(Array.from(publishedById.keys())));
+      ids.forEach(function (id) {
+        var currentItem = currentById.get(id);
+        var publishedItem = publishedById.get(id);
+        if (!sameValue(currentItem, publishedItem)) {
+          add(kind, id, category, titleFor(currentItem || publishedItem), detailFor(currentItem, publishedItem));
+        }
+      });
+    };
+
+    collectArrayEntries(state.rules, state.publishedRules, 'promotion', 'Акции', function (rule) {
+      return rule.name || 'Правило акции';
+    }, function (current, published) {
+      return !published ? 'Добавлено новое правило.' : !current ? 'Опубликованное правило удалено.' : 'Изменены текст, состояние или условия применения.';
+    });
+    if (commonOrderChanged(state.rules, state.publishedRules)) add('promotion-order', 'order', 'Акции', 'Порядок правил акций', 'Изменён приоритет применения правил.');
+
+    var currentImageLots = state.imageSettings.lot_overrides || {};
+    var publishedImageLots = state.publishedImageSettings.lot_overrides || {};
+    new Set(Object.keys(currentImageLots).concat(Object.keys(publishedImageLots))).forEach(function (lotId) {
+      if (!sameValue(currentImageLots[lotId], publishedImageLots[lotId])) {
+        add('image-lot', lotId, 'Изображения', lotChangeLabel(lotId), 'Изменены порядок, исключения или добавленные изображения лота.');
+      }
+    });
+    collectArrayEntries(state.imageSettings.bulk_rules || [], state.publishedImageSettings.bulk_rules || [], 'image-bulk', 'Изображения', function (rule) {
+      return rule.name || 'Массовое правило изображений';
+    }, function (current, published) {
+      return !published ? 'Добавлено массовое правило.' : !current ? 'Опубликованное массовое правило удалено.' : 'Изменены условия или порядок изображений.';
+    });
+    if (commonOrderChanged(state.imageSettings.bulk_rules || [], state.publishedImageSettings.bulk_rules || [])) {
+      add('image-bulk-order', 'order', 'Изображения', 'Порядок массовых правил изображений', 'Изменён приоритет массовых правил.');
+    }
+
+    var currentParameterLots = state.parameterSettings.lot_values || {};
+    var publishedParameterLots = state.publishedParameterSettings.lot_values || {};
+    new Set(Object.keys(currentParameterLots).concat(Object.keys(publishedParameterLots))).forEach(function (lotId) {
+      if (!sameValue(currentParameterLots[lotId], publishedParameterLots[lotId])) {
+        var tags = Object.keys(currentParameterLots[lotId] || publishedParameterLots[lotId] || {}).join(', ');
+        add('parameter-lot', lotId, 'Параметры', lotChangeLabel(lotId), 'Изменены параметры Avito' + (tags ? ': ' + tags + '.' : '.'));
+      }
+    });
+    collectArrayEntries(state.parameterSettings.bulk_rules || [], state.publishedParameterSettings.bulk_rules || [], 'parameter-bulk', 'Параметры', function (rule) {
+      return rule.name || 'Массовое правило параметров';
+    }, function (current, published) {
+      return !published ? 'Добавлено массовое правило.' : !current ? 'Опубликованное массовое правило удалено.' : 'Изменены значения или условия выборки.';
+    });
+    if (commonOrderChanged(state.parameterSettings.bulk_rules || [], state.publishedParameterSettings.bulk_rules || [])) {
+      add('parameter-bulk-order', 'order', 'Параметры', 'Порядок массовых правил параметров', 'Изменён приоритет массовых правил.');
+    }
+
+    if (!sameValue(state.materialSettings, state.publishedMaterialSettings)) {
+      var materialParts = [];
+      if (state.materialSettings.logo !== state.publishedMaterialSettings.logo) materialParts.push('логотип');
+      if (state.materialSettings.key_render !== state.publishedMaterialSettings.key_render) materialParts.push('ключевой рендер');
+      if (state.materialSettings.primary_color !== state.publishedMaterialSettings.primary_color) materialParts.push('основной цвет');
+      if (!sameValue(state.materialSettings.palette, state.publishedMaterialSettings.palette)) materialParts.push('палитра');
+      add('materials', 'project', 'Материалы', 'Фирменные материалы проекта', 'Изменено: ' + materialParts.join(', ') + '.');
+    }
+
+    var currentExcluded = new Set(state.excludedLotIds.map(String));
+    var publishedExcluded = new Set(state.publishedExcludedLotIds.map(String));
+    new Set(Array.from(currentExcluded).concat(Array.from(publishedExcluded))).forEach(function (lotId) {
+      if (currentExcluded.has(lotId) !== publishedExcluded.has(lotId)) {
+        add('excluded-lot', lotId, 'Состав фида', lotChangeLabel(lotId), currentExcluded.has(lotId) ? 'Лот исключён из результирующего фида.' : 'Лот возвращён в результирующий фид.');
+      }
+    });
+    state.pendingUploadDeletions.forEach(function (item) {
+      var key = String(item.path || (item.lot + '/' + item.id));
+      add('pending-deletion', key, 'Файлы', lotChangeLabel(item.lot), 'Загруженное изображение отмечено для физического удаления.');
+    });
+    return changes;
+  }
+
+  function renderUnsavedChangeButton() {
+    var button = $('#review-unsaved');
+    if (!button) return;
+    var count = collectUnsavedChanges().length;
+    button.textContent = count ? 'Несохранённые изменения · ' + count : 'Посмотреть несохранённые изменения';
+    button.classList.toggle('has-changes', count > 0);
+  }
+
+  function renderChangeReviewModal() {
+    state.changeReviewItems = collectUnsavedChanges();
+    var list = $('#change-review-list');
+    var count = state.changeReviewItems.length;
+    $('#change-review-count').textContent = count + ' ' + (count === 1 ? 'изменение' : count < 5 ? 'изменения' : 'изменений');
+    $('#select-all-changes').checked = false;
+    $('#select-all-changes').indeterminate = false;
+    $('#select-all-changes').disabled = !count;
+    $('#remove-selected-changes').disabled = true;
+    $('#clear-unsaved').disabled = !count;
+    if (!count) {
+      list.innerHTML = '<div class="change-review-empty">Проект совпадает с опубликованными настройками.</div>';
+      return;
+    }
+    list.innerHTML = state.changeReviewItems.map(function (change) {
+      return '<label class="change-review-item"><input type="checkbox" value="' + esc(change.id) + '"><span class="change-review-copy"><strong>' +
+        esc(change.title) + '</strong><span>' + esc(change.category) + '</span><small>' + esc(change.detail) + '</small></span></label>';
+    }).join('');
+    $$('input[type="checkbox"]', list).forEach(function (checkbox) {
+      checkbox.addEventListener('change', syncChangeReviewSelection);
+    });
+  }
+
+  function syncChangeReviewSelection() {
+    var boxes = $$('input[type="checkbox"]', $('#change-review-list'));
+    var selected = boxes.filter(function (box) { return box.checked; }).length;
+    $('#remove-selected-changes').disabled = !selected;
+    $('#select-all-changes').checked = Boolean(boxes.length && selected === boxes.length);
+    $('#select-all-changes').indeterminate = Boolean(selected && selected < boxes.length);
+  }
+
+  function restoreArrayEntry(current, published, id) {
+    var currentIndex = current.findIndex(function (item) { return String(item.id) === String(id); });
+    var publishedIndex = published.findIndex(function (item) { return String(item.id) === String(id); });
+    if (publishedIndex < 0) {
+      if (currentIndex >= 0) current.splice(currentIndex, 1);
+      return;
+    }
+    if (currentIndex >= 0) current[currentIndex] = clone(published[publishedIndex]);
+    else current.splice(Math.min(publishedIndex, current.length), 0, clone(published[publishedIndex]));
+  }
+
+  function restoreCommonOrder(current, published) {
+    var currentById = new Map(current.map(function (item) { return [String(item.id), item]; }));
+    var publishedIds = new Set(published.map(function (item) { return String(item.id); }));
+    var restored = published.map(function (item) { return currentById.get(String(item.id)); }).filter(Boolean);
+    return restored.concat(current.filter(function (item) { return !publishedIds.has(String(item.id)); }));
+  }
+
+  function revertChange(change) {
+    var published;
+    if (change.kind === 'promotion') restoreArrayEntry(state.rules, state.publishedRules, change.key);
+    else if (change.kind === 'promotion-order') state.rules = restoreCommonOrder(state.rules, state.publishedRules);
+    else if (change.kind === 'image-lot') {
+      published = state.publishedImageSettings.lot_overrides[change.key];
+      if (published == null) delete state.imageSettings.lot_overrides[change.key];
+      else state.imageSettings.lot_overrides[change.key] = clone(published);
+    } else if (change.kind === 'image-bulk') restoreArrayEntry(state.imageSettings.bulk_rules, state.publishedImageSettings.bulk_rules, change.key);
+    else if (change.kind === 'image-bulk-order') state.imageSettings.bulk_rules = restoreCommonOrder(state.imageSettings.bulk_rules, state.publishedImageSettings.bulk_rules);
+    else if (change.kind === 'parameter-lot') {
+      published = state.publishedParameterSettings.lot_values[change.key];
+      if (published == null) delete state.parameterSettings.lot_values[change.key];
+      else state.parameterSettings.lot_values[change.key] = clone(published);
+    } else if (change.kind === 'parameter-bulk') restoreArrayEntry(state.parameterSettings.bulk_rules, state.publishedParameterSettings.bulk_rules, change.key);
+    else if (change.kind === 'parameter-bulk-order') state.parameterSettings.bulk_rules = restoreCommonOrder(state.parameterSettings.bulk_rules, state.publishedParameterSettings.bulk_rules);
+    else if (change.kind === 'materials') state.materialSettings = clone(state.publishedMaterialSettings);
+    else if (change.kind === 'excluded-lot') {
+      var shouldBeExcluded = state.publishedExcludedLotIds.indexOf(change.key) >= 0;
+      state.excludedLotIds = state.excludedLotIds.filter(function (id) { return String(id) !== change.key; });
+      if (shouldBeExcluded) state.excludedLotIds.push(change.key);
+    } else if (change.kind === 'pending-deletion') {
+      state.pendingUploadDeletions = state.pendingUploadDeletions.filter(function (item) {
+        return String(item.path || (item.lot + '/' + item.id)) !== change.key;
+      });
+    }
+  }
+
+  function finalizeRevertedChanges() {
+    state.activeRuleId = state.rules.some(function (rule) { return rule.id === state.activeRuleId; }) ? state.activeRuleId : (state.rules[0] && state.rules[0].id || null);
+    var remaining = collectUnsavedChanges();
+    if (!remaining.length) {
+      localStorage.removeItem(draftKey());
+      state.dirty = false;
+      state.draftSaved = false;
+    } else {
+      saveDraft(false);
+    }
+    renderAll();
+    renderSavedState();
+    renderChangeReviewModal();
+  }
+
+  function removeSelectedChanges() {
+    var selected = new Set($$('input[type="checkbox"]:checked', $('#change-review-list')).map(function (box) { return box.value; }));
+    if (!selected.size) return;
+    state.changeReviewItems.filter(function (change) { return selected.has(change.id); }).forEach(revertChange);
+    finalizeRevertedChanges();
+    showToast('Выбранные изменения удалены из черновика');
+  }
+
+  function clearAllUnsavedChanges() {
+    if (!state.changeReviewItems.length) return;
+    if (!window.confirm('Очистить все несохранённые изменения и вернуть опубликованные настройки проекта?')) return;
+    state.rules = clone(state.publishedRules);
+    state.imageSettings = clone(state.publishedImageSettings);
+    state.parameterSettings = clone(state.publishedParameterSettings);
+    state.materialSettings = clone(state.publishedMaterialSettings);
+    state.excludedLotIds = clone(state.publishedExcludedLotIds);
+    state.pendingUploadDeletions = [];
+    localStorage.removeItem(draftKey());
+    state.dirty = false;
+    state.draftSaved = false;
+    state.activeRuleId = state.rules[0] ? state.rules[0].id : null;
+    renderAll();
+    renderSavedState();
+    renderChangeReviewModal();
+    showToast('Все несохранённые изменения очищены');
+  }
+
+  function openChangesModal() {
+    renderChangeReviewModal();
+    $('#changes-modal').classList.remove('hidden');
   }
 
   function ruleMatches(item, rule, ignoreExcluded) {
@@ -1668,6 +1909,7 @@
     renderAssets();
     renderPreview();
     renderFeedRefreshState();
+    renderUnsavedChangeButton();
   }
 
   function settingsPayload() {
@@ -2041,6 +2283,17 @@
       renderAll();
     });
     $('#save-draft').addEventListener('click', function () { saveDraft(true); });
+    $('#review-unsaved').addEventListener('click', openChangesModal);
+    $('#close-changes').addEventListener('click', function () { $('#changes-modal').classList.add('hidden'); });
+    $('#remove-selected-changes').addEventListener('click', removeSelectedChanges);
+    $('#clear-unsaved').addEventListener('click', clearAllUnsavedChanges);
+    $('#select-all-changes').addEventListener('change', function (event) {
+      $$('input[type="checkbox"]', $('#change-review-list')).forEach(function (box) { box.checked = event.target.checked; });
+      syncChangeReviewSelection();
+    });
+    $('#changes-modal').addEventListener('click', function (event) {
+      if (event.target.id === 'changes-modal') $('#changes-modal').classList.add('hidden');
+    });
     $('#refresh-profitbase').addEventListener('click', requestFeedRefresh);
     $('#publish-settings').addEventListener('click', openPublishModal);
     $('#cancel-publish').addEventListener('click', function () { $('#publish-modal').classList.add('hidden'); });
@@ -2087,6 +2340,9 @@
       state.status = data[2];
       state.assets = data[3];
       var publishedRules = (data[1].rules || []).map(normalizeRule);
+      state.publishedRules = clone(publishedRules);
+      state.publishedImageSettings = normalizeImageSettings(data[1].image_settings || emptyImageSettings());
+      state.publishedParameterSettings = normalizeParameterSettings(data[1].parameter_settings || emptyParameterSettings());
       var draft = null;
       try { draft = JSON.parse(localStorage.getItem(draftKey()) || 'null'); } catch (error) { draft = null; }
       state.rules = draft && Array.isArray(draft.rules) ? draft.rules.map(normalizeRule) : publishedRules;
@@ -2095,7 +2351,9 @@
       state.publishedMaterialSettings = normalizeMaterialSettings(data[1].material_settings || emptyMaterialSettings(), state.assets);
       state.materialSettings = normalizeMaterialSettings(draft && draft.material_settings != null ? draft.material_settings : state.publishedMaterialSettings, state.assets);
       var availableLotIds = new Set(state.inventory.items.map(function (item) { return String(item.id); }));
-      state.excludedLotIds = Array.from(new Set((draft && Array.isArray(draft.excluded_lot_ids) ? draft.excluded_lot_ids : data[1].excluded_lot_ids || []).map(String)))
+      state.publishedExcludedLotIds = Array.from(new Set((data[1].excluded_lot_ids || []).map(String)))
+        .filter(function (id) { return availableLotIds.has(id); });
+      state.excludedLotIds = Array.from(new Set((draft && Array.isArray(draft.excluded_lot_ids) ? draft.excluded_lot_ids : state.publishedExcludedLotIds).map(String)))
         .filter(function (id) { return availableLotIds.has(id); });
       state.pendingUploadDeletions = draft && Array.isArray(draft.pending_upload_deletions) ? clone(draft.pending_upload_deletions) : [];
       state.draftSaved = Boolean(draft);

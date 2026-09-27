@@ -60,6 +60,7 @@
         </div>
         <div class="top-actions">
           <span class="saved-state" id="saved-state" role="status" aria-live="polite">Настройки загружены</span>
+          <button class="button button-secondary review-changes-button" id="review-unsaved" type="button">Посмотреть несохранённые изменения</button>
           <button class="button button-secondary feed-refresh-button" id="refresh-profitbase" type="button" title="Получить актуальный фид выбранного объекта из Profitbase">Обновить Profitbase</button>
           <button class="button button-secondary" id="logout-access">Выйти</button>
           <button class="button button-secondary" id="save-draft">Сохранить черновик</button>
@@ -327,6 +328,23 @@
       <div class="modal-actions">
         <button class="button button-secondary" id="cancel-project">Отмена</button>
         <button class="button button-primary" id="confirm-project">Создать через GitHub</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-backdrop hidden" id="changes-modal" role="dialog" aria-modal="true" aria-labelledby="changes-modal-title">
+    <div class="modal changes-modal">
+      <p class="eyebrow">Черновик проекта</p>
+      <h2 id="changes-modal-title">Текущие несохранённые изменения</h2>
+      <p>Показаны все отличия от опубликованных настроек. Отмеченные пункты можно удалить: для них будет восстановлено опубликованное значение.</p>
+      <div class="change-review-toolbar">
+        <label><input type="checkbox" id="select-all-changes"> <span>Выбрать все</span></label>
+        <strong id="change-review-count">0 изменений</strong>
+      </div>
+      <div class="change-review-list" id="change-review-list"></div>
+      <div class="modal-actions changes-modal-actions">
+        <button class="button button-secondary" id="close-changes">Закрыть</button>
+        <button class="button button-danger" id="clear-unsaved">Очистить все несохранённые изменения</button>
+        <button class="button button-primary" id="remove-selected-changes">Удалить выбранные изменения</button>
       </div>
     </div>
   </div>
