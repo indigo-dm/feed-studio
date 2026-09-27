@@ -14,7 +14,15 @@
 
   window.FEED_STUDIO_CREDENTIAL = {
     get: function () { return sessionStorage.getItem(credentialKey) || ''; },
-    set: function (value) { sessionStorage.setItem(credentialKey, String(value || '')); }
+    set: function (value) {
+      var credential = String(value || '');
+      if (credential) {
+        sessionStorage.setItem(credentialKey, credential);
+        return;
+      }
+      sessionStorage.removeItem(credentialKey);
+      sessionStorage.removeItem(sessionKey);
+    }
   };
 
   function validConfig() {
@@ -57,10 +65,11 @@
     window.location.reload();
   });
 
-  if (sessionStorage.getItem(sessionKey) === 'granted') {
+  if (sessionStorage.getItem(sessionKey) === 'granted' && window.FEED_STUDIO_CREDENTIAL.get()) {
     unlock();
     return;
   }
+  sessionStorage.removeItem(sessionKey);
 
   form.addEventListener('submit', async function (event) {
     event.preventDefault();

@@ -940,10 +940,10 @@
     if (!item || !endpoint || state.imageUploadBusy) return;
     var credential = window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.get ? window.FEED_STUDIO_CREDENTIAL.get() : '';
     if (!credential) {
-      credential = window.prompt('Введите пароль Feed Studio для загрузки файла:') || '';
-      if (credential && window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.set) window.FEED_STUDIO_CREDENTIAL.set(credential);
+      showToast('Сессия входа завершена. Войдите в Feed Studio повторно.');
+      window.setTimeout(function () { window.location.reload(); }, 500);
+      return;
     }
-    if (!credential) return;
     state.imageUploadBusy = true;
     setImageUploadMessage('Оптимизируем и загружаем изображение…', '');
     try {
