@@ -37,6 +37,9 @@
     publishOperation: null,
     publishPollTimer: null,
     publishBusy: false,
+    feedRefreshOperation: null,
+    feedRefreshPollTimer: null,
+    feedRefreshBusy: false,
     draftSaved: false,
     dirty: false
   };
@@ -71,6 +74,7 @@
   };
   var draftKey = function () { return 'feed-studio-rules-v1-' + (state.project ? state.project.slug : 'default'); };
   var operationKey = function () { return 'feed-studio-publish-v1-' + (state.project ? state.project.slug : 'default'); };
+  var feedRefreshKey = function () { return 'feed-studio-profitbase-refresh-v1-' + (state.project ? state.project.slug : 'default'); };
   var formatPrice = function (value) {
     return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(Number(value)) + ' ₽';
   };
@@ -614,6 +618,128 @@
 
   function serviceEndpoint(path) {
     return uploadServiceUrl().replace(/\/+$/, '') + path;
+  }
+
+  function stopFeedRefreshPolling() {
+    if (state.feedRefreshPollTimer) window.clearTimeout(state.feedRefreshPollTimer);
+    state.feedRefreshPollTimer = null;
+  }
+
+  function storeFeedRefreshOperation(operation) {
+    state.feedRefreshOperation = operation;
+    if (operation && state.project) localStorage.setItem(feedRefreshKey(), JSON.stringify(operation));
+    else if (state.project) localStorage.removeItem(feedRefreshKey());
+    renderFeedRefreshState();
+  }
+
+  function renderFeedRefreshState() {
+    var button = $('#refresh-profitbase');
+    if (!button) return;
+    var operation = state.feedRefreshOperation;
+    var status = operation && operation.status || '';
+    button.className = 'button button-secondary feed-refresh-button';
+    button.disabled = state.feedRefreshBusy || ['queued', 'building', 'deploying'].indexOf(status) >= 0 || !state.project || !uploadServiceUrl();
+    if (status === 'queued') {
+      button.textContent = 'Обновление в очереди…';
+      button.classList.add('processing');
+      return;
+    }
+    if (status === 'building') {
+      button.textContent = 'Получаем Profitbase…';
+      button.classList.add('processing');
+      return;
+    }
+    if (status === 'deploying') {
+      button.textContent = 'Публикуем XML…';
+      button.classList.add('processing');
+      return;
+    }
+    if (status === 'published') {
+      button.textContent = 'Обновлено · ' + formatDateTime(operation.completedAt);
+      button.classList.add('success');
+      button.title = 'Готовый XML выбранного объекта опубликован. Нажмите, чтобы снова получить данные из Profitbase.';
+      return;
+    }
+    if (status === 'failed') {
+      button.textContent = 'Повторить обновление';
+      button.classList.add('error');
+      button.title = operation.message || 'Обновление завершилось ошибкой.';
+      return;
+    }
+    button.textContent = 'Обновить Profitbase';
+    button.title = 'Получить актуальный фид выбранного объекта из Profitbase';
+  }
+
+  async function pollFeedRefreshStatus() {
+    stopFeedRefreshPolling();
+    var operation = state.feedRefreshOperation;
+    if (!operation || !operation.request || ['published', 'failed'].indexOf(operation.status) >= 0 || !uploadServiceUrl()) return;
+    var credential = window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.get ? window.FEED_STUDIO_CREDENTIAL.get() : '';
+    if (!credential) return;
+    try {
+      var response = await fetch(serviceEndpoint('/refresh/status?request=' + encodeURIComponent(operation.request)), {
+        headers: { Authorization: 'Bearer ' + credential },
+        cache: 'no-store'
+      });
+      var payload = await response.json().catch(function () { return {}; });
+      if (!response.ok) throw new Error(payload.error || 'Не удалось получить статус обновления Profitbase.');
+      operation.status = String(payload.status || operation.status);
+      operation.completedAt = payload.completedAt || operation.completedAt || '';
+      operation.message = payload.message || '';
+      operation.runUrl = payload.runUrl || operation.runUrl || '';
+      storeFeedRefreshOperation(operation);
+      if (operation.status === 'published') {
+        showToast('Profitbase обновлён, готовый XML опубликован');
+        await refreshPublishedProject();
+        return;
+      }
+      if (operation.status === 'failed') {
+        showToast(operation.message || 'Обновление Profitbase завершилось ошибкой.');
+        return;
+      }
+    } catch (error) {
+      operation.message = error.message || 'Не удалось проверить статус обновления.';
+      renderFeedRefreshState();
+    }
+    state.feedRefreshPollTimer = window.setTimeout(pollFeedRefreshStatus, 10000);
+  }
+
+  async function requestFeedRefresh() {
+    if (!state.project || state.feedRefreshBusy) return;
+    if (state.publishOperation && ['queued', 'building'].indexOf(state.publishOperation.status) >= 0) {
+      showToast('Сначала дождитесь применения текущих настроек фида.');
+      return;
+    }
+    var credential = window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.get ? window.FEED_STUDIO_CREDENTIAL.get() : '';
+    if (!credential) {
+      showToast('Выйдите и войдите в Feed Studio повторно.');
+      return;
+    }
+    state.feedRefreshBusy = true;
+    renderFeedRefreshState();
+    try {
+      var response = await fetch(serviceEndpoint('/refresh'), {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + credential, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project: state.project.slug })
+      });
+      var payload = await response.json().catch(function () { return {}; });
+      if (!response.ok) throw new Error(payload.error || 'Не удалось запустить обновление Profitbase.');
+      storeFeedRefreshOperation({
+        request: payload.request,
+        project: state.project.slug,
+        status: payload.status || 'queued',
+        requestedAt: payload.requestedAt || new Date().toISOString()
+      });
+      showToast(state.dirty || state.draftSaved ? 'Обновление начато. Черновик настроек не применяется до публикации.' : 'Получаем актуальные данные Profitbase для выбранного объекта.');
+      pollFeedRefreshStatus();
+    } catch (error) {
+      storeFeedRefreshOperation({ project: state.project.slug, status: 'failed', message: error.message || 'Не удалось запустить обновление.' });
+      showToast(error.message || 'Не удалось запустить обновление Profitbase.');
+    } finally {
+      state.feedRefreshBusy = false;
+      renderFeedRefreshState();
+    }
   }
 
   function mergeMaterialItems(items) {
@@ -1541,6 +1667,7 @@
     renderRuleEditor();
     renderAssets();
     renderPreview();
+    renderFeedRefreshState();
   }
 
   function settingsPayload() {
@@ -1914,6 +2041,7 @@
       renderAll();
     });
     $('#save-draft').addEventListener('click', function () { saveDraft(true); });
+    $('#refresh-profitbase').addEventListener('click', requestFeedRefresh);
     $('#publish-settings').addEventListener('click', openPublishModal);
     $('#cancel-publish').addEventListener('click', function () { $('#publish-modal').classList.add('hidden'); });
     $('#confirm-publish').addEventListener('click', confirmPublish);
@@ -1935,6 +2063,7 @@
 
   async function loadProject(slug, preservePublication) {
     stopPublishPolling();
+    stopFeedRefreshPolling();
     var project = state.registry.projects.find(function (item) { return item.slug === slug; });
     if (!project) return;
     if (!project.available) {
@@ -1973,6 +2102,7 @@
       if (!preservePublication) {
         try { state.publishOperation = JSON.parse(localStorage.getItem(operationKey()) || 'null'); } catch (error) { state.publishOperation = null; }
       }
+      try { state.feedRefreshOperation = JSON.parse(localStorage.getItem(feedRefreshKey()) || 'null'); } catch (error) { state.feedRefreshOperation = null; }
       state.activeRuleId = state.rules[0] ? state.rules[0].id : null;
       state.previewId = null;
       state.imageLotId = null;
@@ -1993,6 +2123,7 @@
       navigate(state.activeView);
       setDirty(false);
       pollPublishStatus();
+      pollFeedRefreshStatus();
     } catch (error) {
       document.querySelector('main').innerHTML = '<section class="panel empty-state"><div><h2>Кабинет временно недоступен</h2><p>' + esc(error.message) + '</p></div></section>';
     }
