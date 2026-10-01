@@ -40,7 +40,7 @@ const contentTypes = {
     if (!target.startsWith(path.resolve(frontend)) || !fs.existsSync(target)) return route.fulfill({ status: 404, body: 'Not found' });
     await route.fulfill({ status: 200, contentType: contentTypes[path.extname(target).toLowerCase()] || 'application/octet-stream', body: fs.readFileSync(target) });
   });
-  await page.route('https://indigo-feed-studio-upload.indigo-dm-tech.workers.dev/**', async (route) => {
+  await page.route('https://feed-api.indigo-dm.ru/**', async (route) => {
     const url = new URL(route.request().url());
     const cors = { 'Access-Control-Allow-Origin': 'http://localhost', 'Access-Control-Allow-Headers': 'Authorization, Content-Type' };
     if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
@@ -50,7 +50,7 @@ const contentTypes = {
       if (!target.startsWith(dataRoot) || !fs.existsSync(target)) return route.fulfill({ status: 404, body: 'Not found' });
       if (target.endsWith('assets.json')) {
         const payload = JSON.parse(fs.readFileSync(target, 'utf8'));
-        payload.upload_service_url = 'https://indigo-feed-studio-upload.indigo-dm-tech.workers.dev';
+        payload.upload_service_url = 'https://feed-api.indigo-dm.ru';
         return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify(payload) });
       }
       return route.fulfill({ status: 200, contentType: contentTypes[path.extname(target).toLowerCase()] || 'application/octet-stream', headers: cors, body: fs.readFileSync(target) });

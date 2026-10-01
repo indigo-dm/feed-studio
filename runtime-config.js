@@ -1,5 +1,6 @@
 window.FEED_STUDIO_RUNTIME = {
-  dataRoot: 'https://indigo-feed-studio-upload.indigo-dm-tech.workers.dev/data',
+  dataRoot: 'https://feed-api.indigo-dm.ru/data',
+  serviceRoot: 'https://feed-api.indigo-dm.ru',
   feedRoot: 'https://indigo-dm.github.io/feed-studio/feeds',
   repository: 'indigo-dm/novyy-gorizont-feed'
 };

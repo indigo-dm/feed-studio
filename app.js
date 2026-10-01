@@ -4,6 +4,7 @@
   var RUNTIME = window.FEED_STUDIO_RUNTIME || {};
   var REPOSITORY = String(RUNTIME.repository || 'indigo-dm/novyy-gorizont-feed');
   var DATA_ROOT = String(RUNTIME.dataRoot || '').replace(/\/$/, '');
+  var SERVICE_ROOT = String(RUNTIME.serviceRoot || (DATA_ROOT ? DATA_ROOT.replace(/\/data$/, '') : '')).replace(/\/$/, '');
   var FEED_ROOT = String(RUNTIME.feedRoot || 'https://indigo-dm.github.io/feed-studio/feeds').replace(/\/$/, '');
   var state = {
     registry: null,
@@ -854,6 +855,7 @@
   }
 
   function uploadServiceUrl() {
+    if (/^https:\/\//i.test(SERVICE_ROOT)) return SERVICE_ROOT;
     return state.assets && /^https:\/\//i.test(String(state.assets.upload_service_url || '')) ? String(state.assets.upload_service_url) : '';
   }
 
