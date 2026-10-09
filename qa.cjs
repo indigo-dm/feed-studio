@@ -44,6 +44,9 @@ const contentTypes = {
     const url = new URL(route.request().url());
     const cors = { 'Access-Control-Allow-Origin': 'http://localhost', 'Access-Control-Allow-Headers': 'Authorization, Content-Type' };
     if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+    if (url.pathname.startsWith('/media/')) {
+      return route.fulfill({ status: 200, contentType: 'image/png', headers: cors, body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNkYGD4z8DAwMDAxAADAAwBAQDJxQ8AAAAASUVORK5CYII=', 'base64') });
+    }
     if (url.pathname.startsWith('/data/')) {
       const relative = url.pathname.replace(/^\/data\//, '');
       const target = path.resolve(dataRoot, relative);
@@ -134,9 +137,32 @@ const contentTypes = {
   const imageIndividualAfter = await page.locator('#image-individual-rules .individual-rule').count();
 
   await page.locator('[data-view="parameters"]').click();
+  const individualParameterOptions = await page.locator('#new-parameter-tag option').count();
+  const bulkParameterOptions = await page.locator('#bulk-parameter-tag option').count();
+  const descriptionEditorVisible = await page.locator('#description-editor-wrap [data-rich-editor]').isVisible();
+  const descriptionShortcodes = await page.locator('#description-editor-wrap [data-description-shortcode] option').count();
+  const descriptionPreviewVisible = await page.locator('#description-editor-wrap [data-description-preview]').isVisible();
+  const planOptions = await page.locator('#parameter-filter-plan option').count();
+  await page.screenshot({ path: path.join(os.tmpdir(), 'feed-studio-parameters-qa.png'), fullPage: true });
+  let selectedPlan = '';
+  let selectedPlanCount = 0;
+  if (planOptions > 1) {
+    selectedPlan = await page.locator('#parameter-filter-plan option').nth(1).getAttribute('value');
+    await page.locator('#parameter-filter-plan').selectOption(selectedPlan);
+    selectedPlanCount = Number(await page.locator('#parameter-filter-count').innerText());
+    await page.locator('#parameter-filter-plan').selectOption('');
+  }
   const parameterLotId = await page.locator('#parameter-lot').inputValue();
+  await page.locator('#description-editor-wrap [data-rich-editor]').evaluate((editor) => {
+    editor.innerHTML = '<p><strong>Площадь</strong>: {{Square}} м²</p>';
+    editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+  });
+  const descriptionTemplateKept = (await page.locator('#description-editor-wrap [data-rich-editor]').innerHTML()).includes('{{Square}}');
+  const descriptionPreviewText = await page.locator('#description-editor-wrap [data-description-preview]').innerText();
+  const descriptionResolved = descriptionPreviewText.includes('Площадь') && !descriptionPreviewText.includes('{{Square}}');
   await page.locator('#add-parameter').click();
   const parameterIndividualBefore = await page.locator('#parameter-individual-rules .individual-rule').count();
+  const parameterIndividualLabels = await page.locator('#parameter-individual-rules .individual-rule').first().innerText();
   await page.locator('#parameter-individual-rules [data-open-parameter-individual]').first().click();
   const openedParameterLot = await page.locator('#parameter-lot').inputValue();
   page.once('dialog', (dialog) => dialog.accept());
@@ -185,7 +211,7 @@ const contentTypes = {
   await page.waitForFunction(() => window.localStorage.getItem('feed-studio-publish-v1-novyy-gorizont'));
 
   const result = {
-    ok: errors.length === 0 && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 3 && activeBefore === 2 && selectedLibrary.some((text) => text.includes('Ключевой рендер')) && cardsAfterUpload === initialCards + 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 1 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.toLowerCase().includes('после публикации') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.color === '#123ABC' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && parameterIndividualBefore === 1 && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && excludedCardMarked === 1 && submitted && submitted.version === 3 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor),
+    ok: errors.length === 0 && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 3 && activeBefore === 2 && selectedLibrary.some((text) => text.includes('Ключевой рендер')) && cardsAfterUpload === initialCards + 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 1 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.toLowerCase().includes('после публикации') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.color === '#123ABC' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && individualParameterOptions === 8 && bulkParameterOptions === 9 && descriptionEditorVisible && descriptionShortcodes >= 5 && descriptionPreviewVisible && descriptionTemplateKept && descriptionResolved && planOptions > 1 && /^plan-[0-9a-f]{12}$/.test(selectedPlan) && selectedPlanCount > 0 && parameterIndividualBefore === 1 && parameterIndividualLabels.includes('Описание') && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && excludedCardMarked === 1 && submitted && submitted.version === 3 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor),
     errors,
     public_feed_href: publicFeedHref,
     initial_cards: initialCards,
@@ -194,6 +220,18 @@ const contentTypes = {
     material_overlay: materialOverlay,
     live_material_preview: liveMaterialPreview,
     bulk_parameter_gap_px: bulkParameterGap,
+    parameters: {
+      individual_options: individualParameterOptions,
+      bulk_options: bulkParameterOptions,
+      description_editor_visible: descriptionEditorVisible,
+      description_shortcodes: descriptionShortcodes,
+      description_preview_visible: descriptionPreviewVisible,
+      description_template_kept: descriptionTemplateKept,
+      description_resolved: descriptionResolved,
+      plan_options: planOptions,
+      selected_plan: selectedPlan,
+      selected_plan_count: selectedPlanCount
+    },
     palette: {
       initial: initialPaletteCount,
       current_markers: currentPaletteMarkers,
