@@ -144,6 +144,24 @@ const contentTypes = {
   const bulkDescriptionShortcodeExcluded = await page.locator('#bulk-parameter-value [data-description-shortcode] option[value="Description"]').count() === 0;
   const bulkDescriptionStartsEmpty = !(await page.locator('#bulk-parameter-value [data-rich-editor]').innerHTML()).includes('{{Description}}') &&
     !(await page.locator('#bulk-parameter-value [data-rich-editor]').innerText()).trim();
+  const bulkDescriptionExpandVisible = await page.locator('#bulk-parameter-value [data-expand-description]').isVisible();
+  await page.locator('#bulk-parameter-value [data-expand-description]').click();
+  const bulkDescriptionModalVisible = await page.locator('#description-modal').isVisible();
+  const bulkDescriptionModalSize = await page.locator('#description-modal-body [data-rich-editor]').evaluate((editor) => {
+    const box = editor.getBoundingClientRect();
+    return { width: Math.round(box.width), height: Math.round(box.height) };
+  });
+  await page.locator('#description-modal .description-modal').screenshot({ path: path.join(os.tmpdir(), 'feed-studio-bulk-description-modal-qa.png') });
+  await page.locator('#description-modal-body [data-rich-editor]').evaluate((editor) => {
+    editor.innerHTML = '<p>Комнат: {{Rooms}}</p>';
+    editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+  });
+  await page.locator('#close-description-modal').click();
+  const bulkDescriptionContentPreserved = (await page.locator('#bulk-parameter-value [data-rich-editor]').innerHTML()).includes('{{Rooms}}');
+  await page.locator('#bulk-parameter-value [data-expand-description]').click();
+  await page.keyboard.press('Escape');
+  const bulkDescriptionEscapeCloses = !(await page.locator('#description-modal').isVisible()) &&
+    await page.locator('#bulk-parameter-value [data-rich-editor]').isVisible();
   const descriptionEditorVisible = await page.locator('#description-editor-wrap [data-rich-editor]').isVisible();
   const descriptionShortcodes = await page.locator('#description-editor-wrap [data-description-shortcode] option').count();
   const descriptionPreviewVisible = await page.locator('#description-editor-wrap [data-description-preview]').isVisible();
@@ -235,7 +253,7 @@ const contentTypes = {
   await page.waitForFunction(() => window.localStorage.getItem('feed-studio-publish-v1-novyy-gorizont'));
 
   const result = {
-    ok: errors.length === 0 && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 3 && activeBefore === 2 && selectedLibrary.some((text) => text.includes('Ключевой рендер')) && cardsAfterUpload === initialCards + 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 1 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.toLowerCase().includes('после публикации') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.color === '#123ABC' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && individualParameterOptions === 8 && bulkParameterOptions === 9 && bulkDescriptionShortcodeExcluded && bulkDescriptionStartsEmpty && descriptionEditorVisible && descriptionShortcodes >= 5 && descriptionShortcodeExcluded && addressShownFully && descriptionPreviewVisible && descriptionTemplateKept && descriptionResolved && planOptions > 1 && parameterToolbarLayout.planWidth <= 270 && parameterToolbarLayout.singleRow && /^plan-[0-9a-f]{12}$/.test(selectedPlan) && selectedPlanCount > 0 && parameterIndividualBefore === 1 && parameterIndividualLabels.includes('Описание') && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && excludedCardMarked === 1 && submitted && submitted.version === 3 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor),
+    ok: errors.length === 0 && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 3 && activeBefore === 2 && selectedLibrary.some((text) => text.includes('Ключевой рендер')) && cardsAfterUpload === initialCards + 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 1 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.toLowerCase().includes('после публикации') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.color === '#123ABC' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && individualParameterOptions === 8 && bulkParameterOptions === 9 && bulkDescriptionShortcodeExcluded && bulkDescriptionStartsEmpty && bulkDescriptionExpandVisible && bulkDescriptionModalVisible && bulkDescriptionModalSize.width > 700 && bulkDescriptionModalSize.height >= 320 && bulkDescriptionContentPreserved && bulkDescriptionEscapeCloses && descriptionEditorVisible && descriptionShortcodes >= 5 && descriptionShortcodeExcluded && addressShownFully && descriptionPreviewVisible && descriptionTemplateKept && descriptionResolved && planOptions > 1 && parameterToolbarLayout.planWidth <= 270 && parameterToolbarLayout.singleRow && /^plan-[0-9a-f]{12}$/.test(selectedPlan) && selectedPlanCount > 0 && parameterIndividualBefore === 1 && parameterIndividualLabels.includes('Описание') && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && excludedCardMarked === 1 && submitted && submitted.version === 3 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor),
     errors,
     public_feed_href: publicFeedHref,
     initial_cards: initialCards,
@@ -249,6 +267,11 @@ const contentTypes = {
       bulk_options: bulkParameterOptions,
       bulk_description_shortcode_excluded: bulkDescriptionShortcodeExcluded,
       bulk_description_starts_empty: Boolean(bulkDescriptionStartsEmpty),
+      bulk_description_expand_visible: bulkDescriptionExpandVisible,
+      bulk_description_modal_visible: bulkDescriptionModalVisible,
+      bulk_description_modal_size: bulkDescriptionModalSize,
+      bulk_description_content_preserved: bulkDescriptionContentPreserved,
+      bulk_description_escape_closes: bulkDescriptionEscapeCloses,
       description_editor_visible: descriptionEditorVisible,
       description_shortcodes: descriptionShortcodes,
       description_shortcode_excluded: descriptionShortcodeExcluded,
