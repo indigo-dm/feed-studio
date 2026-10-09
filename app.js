@@ -243,8 +243,20 @@
   function renderSavedState() {
     var label = $('#saved-state');
     if (!label) return;
+    var pendingChanges = collectUnsavedChanges().length;
+    if (!pendingChanges && (state.dirty || state.draftSaved)) {
+      state.dirty = false;
+      state.draftSaved = false;
+      if (state.project) localStorage.removeItem(draftKey());
+    }
+    var publishButton = $('#publish-settings');
+    var publishInProgress = Boolean(state.publishOperation && ['queued', 'building'].indexOf(state.publishOperation.status) >= 0);
+    if (publishButton) {
+      publishButton.disabled = !pendingChanges || publishInProgress;
+      publishButton.title = pendingChanges ? '' : 'Нет изменений для применения';
+    }
     label.className = 'saved-state';
-    if (state.publishOperation && ['queued', 'building'].indexOf(state.publishOperation.status) >= 0) {
+    if (publishInProgress) {
       label.textContent = state.publishOperation.status === 'queued' ? 'Настройки приняты · ожидают сборки' : 'Фид пересобирается…';
       label.classList.add('processing');
       return;
@@ -286,6 +298,15 @@
   }
 
   function saveDraft(showMessage) {
+    if (!collectUnsavedChanges().length) {
+      if (state.project) localStorage.removeItem(draftKey());
+      state.dirty = false;
+      state.draftSaved = false;
+      renderSavedState();
+      renderUnsavedChangeButton();
+      if (showMessage) showToast('Нет изменений для сохранения');
+      return false;
+    }
     localStorage.setItem(draftKey(), JSON.stringify({
       version: 3,
       rules: state.rules,
@@ -300,6 +321,7 @@
     renderSavedState();
     renderUnsavedChangeButton();
     if (showMessage) showToast('Черновик сохранён в этом браузере');
+    return true;
   }
 
   function sameValue(left, right) {
@@ -2309,6 +2331,14 @@
       showToast('Предыдущие изменения ещё применяются. Дождитесь окончания пересборки.');
       return;
     }
+    if (!collectUnsavedChanges().length) {
+      if (state.project) localStorage.removeItem(draftKey());
+      state.dirty = false;
+      state.draftSaved = false;
+      renderSavedState();
+      showToast('Нет изменений для применения к фиду');
+      return;
+    }
     var error = validateSettings();
     if (error) {
       showToast(error);
@@ -2330,6 +2360,15 @@
 
   async function confirmPublish() {
     if (state.publishBusy) return;
+    if (!collectUnsavedChanges().length) {
+      $('#publish-modal').classList.add('hidden');
+      if (state.project) localStorage.removeItem(draftKey());
+      state.dirty = false;
+      state.draftSaved = false;
+      renderSavedState();
+      showToast('Нет изменений для применения к фиду');
+      return;
+    }
     if (!uploadServiceUrl()) {
       showToast('Сервис автоматического применения настроек пока недоступен.');
       return;
