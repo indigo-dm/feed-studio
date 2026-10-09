@@ -26,7 +26,7 @@
     activeRuleId: null,
     activeView: 'dashboard',
     filters: { house: '', rooms: '', floor: '', search: '' },
-    imageFilters: { house: '', rooms: '', floor: '', search: '' },
+    imageFilters: { house: '', rooms: '', floor: '', plan: '', search: '' },
     parameterFilters: { house: '', rooms: '', floor: '', plan: '', search: '' },
     page: 1,
     pageSize: 12,
@@ -567,11 +567,12 @@
       return;
     }
     if (section === 'images') {
-      state.imageFilters = { house: '', rooms: '', floor: '', search: String(id) };
+      state.imageFilters = { house: '', rooms: '', floor: '', plan: '', search: String(id) };
       state.imageLotId = String(id);
       $('#image-filter-house').value = '';
       $('#image-filter-rooms').value = '';
       $('#image-filter-floor').value = '';
+      $('#image-filter-plan').value = '';
       $('#image-filter-search').value = String(id);
       navigate('images');
       renderImages();
@@ -775,6 +776,7 @@
     $('#filter-floor').innerHTML = floorOptions;
     $('#image-filter-floor').innerHTML = floorOptions;
     $('#parameter-filter-floor').innerHTML = floorOptions;
+    $('#image-filter-plan').innerHTML = planOptions;
     $('#parameter-filter-plan').innerHTML = planOptions;
     var lotOptions = state.inventory.items.map(function (item) {
       return '<option value="' + esc(item.id) + '">' + esc(item.house + ' · ' + item.rooms + 'к · ' + formatArea(item.area)) + '</option>';
@@ -906,9 +908,16 @@
 
   function renderFeedRefreshState() {
     var button = $('#refresh-profitbase');
+    var sourceState = $('#feed-source-state');
     if (!button) return;
     var operation = state.feedRefreshOperation;
     var status = operation && operation.status || '';
+    if (sourceState) {
+      sourceState.textContent = state.status && state.status.checked_at
+        ? 'Источник проверен · ' + formatDateTime(state.status.checked_at)
+        : 'Дата проверки источника недоступна';
+      sourceState.title = 'Дата последнего получения фида Profitbase — автоматического или ручного.';
+    }
     button.className = 'button button-secondary feed-refresh-button';
     button.disabled = state.feedRefreshBusy || ['queued', 'building', 'deploying'].indexOf(status) >= 0 || !state.project || !uploadServiceUrl();
     if (status === 'queued') {
@@ -927,9 +936,8 @@
       return;
     }
     if (status === 'published') {
-      button.textContent = 'Обновлено · ' + formatDateTime(operation.completedAt);
-      button.classList.add('success');
-      button.title = 'Готовый XML выбранного объекта опубликован. Нажмите, чтобы снова получить данные из Profitbase.';
+      button.textContent = 'Обновить Profitbase';
+      button.title = 'Последнее ручное обновление завершено ' + formatDateTime(operation.completedAt) + '. Нажмите, чтобы получить данные снова.';
       return;
     }
     if (status === 'failed') {
@@ -1282,8 +1290,9 @@
     $('#image-bulk-rules').innerHTML = state.imageSettings.bulk_rules.length ? state.imageSettings.bulk_rules.map(function (rule) {
       var count = state.inventory.items.filter(function (item) { return ruleMatchesSimple(item, rule); }).length;
       var floorLabel = (rule.floors || []).length ? ' · этаж ' + rule.floors.join(', ') : '';
+      var planLabel = (rule.plan_ids || []).length ? ' · выбранная планировка' : '';
       return '<div class="bulk-rule"><div><strong>' + esc(rule.name) + '</strong><small>' + count +
-        ' квартир' + esc(floorLabel) + ' · ' + esc(rule.from_position) + ' → ' + esc(rule.to_position) + '</small></div><button data-delete-image-rule="' +
+        ' квартир' + esc(floorLabel + planLabel) + ' · ' + esc(rule.from_position) + ' → ' + esc(rule.to_position) + '</small></div><button data-delete-image-rule="' +
         esc(rule.id) + '" aria-label="Удалить правило">×</button></div>';
     }).join('') : '<p class="helper">Массовых правил пока нет.</p>';
     $$('[data-delete-image-rule]', $('#image-bulk-rules')).forEach(function (button) {
@@ -2420,6 +2429,7 @@
     $('#image-filter-house').addEventListener('change', function (event) { state.imageFilters.house = event.target.value; renderImages(); });
     $('#image-filter-rooms').addEventListener('change', function (event) { state.imageFilters.rooms = event.target.value; renderImages(); });
     $('#image-filter-floor').addEventListener('change', function (event) { state.imageFilters.floor = event.target.value; renderImages(); });
+    $('#image-filter-plan').addEventListener('change', function (event) { state.imageFilters.plan = event.target.value; renderImages(); });
     $('#image-filter-search').addEventListener('input', function (event) { state.imageFilters.search = event.target.value; renderImages(); });
     $('#image-lot').addEventListener('change', function (event) { state.imageLotId = event.target.value; renderImages(); });
     $('#choose-image-file').addEventListener('click', function (event) {
@@ -2657,7 +2667,7 @@
       state.materialUploadTone = '';
       state.page = 1;
       state.filters = { house: '', rooms: '', floor: '', search: '' };
-      state.imageFilters = { house: '', rooms: '', floor: '', search: '' };
+      state.imageFilters = { house: '', rooms: '', floor: '', plan: '', search: '' };
       state.parameterFilters = { house: '', rooms: '', floor: '', plan: '', search: '' };
       await loadMaterialLibrary();
       populateFilters();

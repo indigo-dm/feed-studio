@@ -61,7 +61,10 @@
         <div class="top-actions">
           <span class="saved-state" id="saved-state" role="status" aria-live="polite">Настройки загружены</span>
           <button class="button button-secondary review-changes-button" id="review-unsaved" type="button">Посмотреть несохранённые изменения</button>
-          <button class="button button-secondary feed-refresh-button" id="refresh-profitbase" type="button" title="Получить актуальный фид выбранного объекта из Profitbase">Обновить Profitbase</button>
+          <div class="feed-refresh-control">
+            <button class="button button-secondary feed-refresh-button" id="refresh-profitbase" type="button" title="Получить актуальный фид выбранного объекта из Profitbase">Обновить Profitbase</button>
+            <span class="feed-source-state" id="feed-source-state">Источник проверяется…</span>
+          </div>
           <button class="button button-secondary" id="logout-access">Выйти</button>
           <button class="button button-secondary" id="save-draft">Сохранить черновик</button>
           <button class="button button-primary" id="publish-settings">Применить к фиду</button>
@@ -114,10 +117,11 @@
             <div><strong>Галерея объявлений</strong><span>Здесь показана итоговая последовательность: брендированная карточка и все изображения Profitbase.</span></div>
             <span class="notice-badge">IMAGES</span>
           </div>
-          <div class="toolbar panel media-toolbar">
+          <div class="toolbar panel media-toolbar image-toolbar">
             <label><span>Дом</span><select id="image-filter-house"><option value="">Все дома</option></select></label>
             <label><span>Комнатность</span><select id="image-filter-rooms"><option value="">Любая</option></select></label>
             <label><span>Этаж</span><select id="image-filter-floor"><option value="">Любой</option></select></label>
+            <label><span>Планировка</span><select id="image-filter-plan"><option value="">Любая</option></select></label>
             <label class="search-field"><span>Поиск по ID</span><input id="image-filter-search" type="search" placeholder="ID квартиры"></label>
             <div class="toolbar-count"><strong id="image-filter-count">0</strong><span>в выборке</span></div>
           </div>

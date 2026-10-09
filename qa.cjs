@@ -29,6 +29,9 @@ const contentTypes = {
   await page.addInitScript(({ key }) => {
     sessionStorage.setItem(key, 'granted');
     sessionStorage.setItem(key + ':upload-credential', 'qa-password');
+    localStorage.setItem('feed-studio-profitbase-refresh-v1-novyy-gorizont', JSON.stringify({
+      request: 'refresh-stale-qa', status: 'published', completedAt: '2026-09-27T21:37:00+03:00'
+    }));
   }, { key: 'feed-studio-access:' + hash.slice(0, 16) });
 
   page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
@@ -83,6 +86,9 @@ const contentTypes = {
   await page.route('https://pb12296.profitbase.ru/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNkYGD4z8DAwMDAxAADAAwBAQDJxQ8AAAAASUVORK5CYII=', 'base64') }));
 
   await page.goto('http://localhost/#assets', { waitUntil: 'networkidle' });
+  const refreshButtonText = (await page.locator('#refresh-profitbase').innerText()).trim();
+  const sourceStateText = (await page.locator('#feed-source-state').innerText()).trim();
+  const staleManualDateHidden = refreshButtonText === 'Обновить Profitbase' && !sourceStateText.includes('27 сент.');
   const publicFeedHref = await page.locator('#full-feed-link').getAttribute('href');
   const initialCards = await page.locator('.asset-card').count();
   const activeBefore = await page.locator('.asset-status.active').count();
@@ -136,6 +142,20 @@ const contentTypes = {
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('#image-individual-rules [data-delete-image-individual]').first().click();
   const imageIndividualAfter = await page.locator('#image-individual-rules .individual-rule').count();
+  await page.locator('#image-filter-search').fill('');
+  const imagePlanOptions = await page.locator('#image-filter-plan option').count();
+  let selectedImagePlan = '';
+  let selectedImagePlanCount = 0;
+  let imagePlanRuleCreated = false;
+  if (imagePlanOptions > 1) {
+    selectedImagePlan = await page.locator('#image-filter-plan option').nth(1).getAttribute('value');
+    await page.locator('#image-filter-plan').selectOption(selectedImagePlan);
+    selectedImagePlanCount = Number(await page.locator('#image-filter-count').innerText());
+    await page.locator('#apply-image-bulk').click();
+    imagePlanRuleCreated = (await page.locator('#image-bulk-rules .bulk-rule').last().innerText()).includes('выбранная планировка');
+    await page.screenshot({ path: path.join(os.tmpdir(), 'feed-studio-images-plan-filter-qa.png'), fullPage: true });
+    await page.locator('#image-filter-plan').selectOption('');
+  }
 
   await page.locator('[data-view="parameters"]').click();
   const individualParameterOptions = await page.locator('#new-parameter-tag option').count();
@@ -253,8 +273,13 @@ const contentTypes = {
   await page.waitForFunction(() => window.localStorage.getItem('feed-studio-publish-v1-novyy-gorizont'));
 
   const result = {
-    ok: errors.length === 0 && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 3 && activeBefore === 2 && selectedLibrary.some((text) => text.includes('Ключевой рендер')) && cardsAfterUpload === initialCards + 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 1 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.toLowerCase().includes('после публикации') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.color === '#123ABC' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && individualParameterOptions === 8 && bulkParameterOptions === 9 && bulkDescriptionShortcodeExcluded && bulkDescriptionStartsEmpty && bulkDescriptionExpandVisible && bulkDescriptionModalVisible && bulkDescriptionModalSize.width > 700 && bulkDescriptionModalSize.height >= 320 && bulkDescriptionContentPreserved && bulkDescriptionEscapeCloses && descriptionEditorVisible && descriptionShortcodes >= 5 && descriptionShortcodeExcluded && addressShownFully && descriptionPreviewVisible && descriptionTemplateKept && descriptionResolved && planOptions > 1 && parameterToolbarLayout.planWidth <= 270 && parameterToolbarLayout.singleRow && /^plan-[0-9a-f]{12}$/.test(selectedPlan) && selectedPlanCount > 0 && parameterIndividualBefore === 1 && parameterIndividualLabels.includes('Описание') && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && excludedCardMarked === 1 && submitted && submitted.version === 3 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor),
+    ok: errors.length === 0 && staleManualDateHidden && sourceStateText.includes('Источник проверен') && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 3 && activeBefore === 2 && selectedLibrary.some((text) => text.includes('Ключевой рендер')) && cardsAfterUpload === initialCards + 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 1 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.toLowerCase().includes('после публикации') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.color === '#123ABC' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && imagePlanOptions > 1 && /^plan-[0-9a-f]{12}$/.test(selectedImagePlan) && selectedImagePlanCount > 0 && imagePlanRuleCreated && individualParameterOptions === 8 && bulkParameterOptions === 9 && bulkDescriptionShortcodeExcluded && bulkDescriptionStartsEmpty && bulkDescriptionExpandVisible && bulkDescriptionModalVisible && bulkDescriptionModalSize.width > 700 && bulkDescriptionModalSize.height >= 320 && bulkDescriptionContentPreserved && bulkDescriptionEscapeCloses && descriptionEditorVisible && descriptionShortcodes >= 5 && descriptionShortcodeExcluded && addressShownFully && descriptionPreviewVisible && descriptionTemplateKept && descriptionResolved && planOptions > 1 && parameterToolbarLayout.planWidth <= 270 && parameterToolbarLayout.singleRow && /^plan-[0-9a-f]{12}$/.test(selectedPlan) && selectedPlanCount > 0 && parameterIndividualBefore === 1 && parameterIndividualLabels.includes('Описание') && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && excludedCardMarked === 1 && submitted && submitted.version === 3 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor),
     errors,
+    feed_refresh_status: {
+      button: refreshButtonText,
+      source: sourceStateText,
+      stale_manual_date_hidden: staleManualDateHidden
+    },
     public_feed_href: publicFeedHref,
     initial_cards: initialCards,
     active_before: activeBefore,
@@ -299,6 +324,12 @@ const contentTypes = {
       images: { before: imageIndividualBefore, opened: openedImageLot, after: imageIndividualAfter },
       parameters: { before: parameterIndividualBefore, opened: openedParameterLot, after: parameterIndividualAfter },
       promotions: { before: promotionIndividualBefore, opened: openedPromotionLot, after: promotionIndividualAfter }
+    },
+    image_plan_filter: {
+      options: imagePlanOptions,
+      selected: selectedImagePlan,
+      selected_count: selectedImagePlanCount,
+      bulk_rule_created: imagePlanRuleCreated
     },
     mobile_overflow_px: mobileOverflow,
     mobile_overflow_by_view: mobileOverflowByView,
