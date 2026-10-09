@@ -305,6 +305,39 @@
     showToast.timer = window.setTimeout(function () { toast.classList.remove('show'); }, 3200);
   }
 
+  function fallbackCopyText(value) {
+    return new Promise(function (resolve, reject) {
+      var field = document.createElement('textarea');
+      field.value = String(value || '');
+      field.setAttribute('readonly', '');
+      field.style.position = 'fixed';
+      field.style.left = '-9999px';
+      field.style.opacity = '0';
+      document.body.appendChild(field);
+      field.focus();
+      field.select();
+      field.setSelectionRange(0, field.value.length);
+      var copied = false;
+      try {
+        copied = document.execCommand('copy');
+      } catch (error) {
+        copied = false;
+      }
+      document.body.removeChild(field);
+      if (copied) resolve();
+      else reject(new Error('Clipboard is unavailable'));
+    });
+  }
+
+  function copyText(value) {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      return navigator.clipboard.writeText(String(value || '')).catch(function () {
+        return fallbackCopyText(value);
+      });
+    }
+    return fallbackCopyText(value);
+  }
+
   function renderSavedState() {
     var label = $('#saved-state');
     if (!label) return;
@@ -715,8 +748,11 @@
     $('#source-feed-link').href = projectBase + '/source-profitbase.xml';
     $('#full-feed-link').href = FEED_ROOT + '/' + encodeURIComponent(state.project.slug) + '/avito.xml';
     $('#pilot-feed-link').href = projectBase + '/pilot-avito.xml';
-    $('#full-feed-link').textContent = 'Полный фид · ' + state.inventory.full_ads + ' квартир ↗';
-    $('#pilot-feed-link').textContent = 'Тестовый фид · ' + state.status.unique_plans + ' планировок ↗';
+    var mobileFeedLinks = window.matchMedia && window.matchMedia('(max-width: 860px)').matches;
+    var feedLinkAction = mobileFeedLinks ? ' · копировать' : ' ↗';
+    $('#source-feed-link').textContent = 'Полученный фид из Profitbase' + feedLinkAction;
+    $('#full-feed-link').textContent = 'Полный фид · ' + state.inventory.full_ads + ' квартир' + feedLinkAction;
+    $('#pilot-feed-link').textContent = 'Тестовый фид · ' + state.status.unique_plans + ' планировок' + feedLinkAction;
     if (state.assets && state.assets.brand) {
       document.documentElement.style.setProperty('--project-gold', state.assets.brand.gold);
       document.documentElement.style.setProperty('--project-ink', state.assets.brand.green_dark);
@@ -2712,7 +2748,16 @@
       });
       var feedLinks = document.querySelectorAll('#feed-links-list a');
       for (var feedLinkIndex = 0; feedLinkIndex < feedLinks.length; feedLinkIndex += 1) {
-        feedLinks[feedLinkIndex].addEventListener('click', function () {
+        feedLinks[feedLinkIndex].addEventListener('click', function (event) {
+          var mobileFeedLinks = window.matchMedia && window.matchMedia('(max-width: 860px)').matches;
+          if (mobileFeedLinks) {
+            event.preventDefault();
+            copyText(this.href).then(function () {
+              showToast('Ссылка на фид скопирована');
+            }).catch(function () {
+              showToast('Не удалось скопировать ссылку');
+            });
+          }
           var menu = $('#feed-links-menu');
           menu.classList.remove('open');
           feedLinksToggle.setAttribute('aria-expanded', 'false');
