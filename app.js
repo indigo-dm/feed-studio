@@ -78,6 +78,71 @@
     var resolved = dataUrl(url);
     return resolved + (resolved.indexOf('?') >= 0 ? '&' : '?') + 'v=' + encodeURIComponent(cacheVersion());
   };
+  var RAW_DATA_ROOT = 'https://raw.githubusercontent.com/indigo-dm/novyy-gorizont-feed/feed-data/published';
+  var absoluteUrl = function (url) {
+    var value = dataUrl(url);
+    if (!value) return '';
+    try {
+      return new URL(value, document.baseURI || window.location.href).href;
+    } catch (error) {
+      return value;
+    }
+  };
+  var appendQuery = function (url, name, value) {
+    return url + (url.indexOf('?') >= 0 ? '&' : '?') +
+      encodeURIComponent(name) + '=' + encodeURIComponent(value);
+  };
+
+  async function requestJsonTarget(url) {
+    var target = absoluteUrl(url);
+    var lastError = null;
+    for (var attempt = 0; attempt < 2; attempt += 1) {
+      var requestUrl = attempt ? appendQuery(target, '_retry', Date.now()) : target;
+      try {
+        var response = await fetch(requestUrl, {
+          cache: 'no-store',
+          credentials: 'omit',
+          redirect: 'follow'
+        });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        var source = await response.text();
+        if (source.charCodeAt(0) === 0xFEFF) source = source.slice(1);
+        if (!source.trim()) throw new Error('пустой ответ');
+        try {
+          return JSON.parse(source);
+        } catch (parseError) {
+          throw new Error('ответ не является JSON');
+        }
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError || new Error('неизвестная ошибка');
+  }
+
+  async function requestJson(url, label, backupUrl) {
+    try {
+      return await requestJsonTarget(url);
+    } catch (primaryError) {
+      if (backupUrl) {
+        try {
+          return await requestJsonTarget(backupUrl);
+        } catch (backupError) {
+          throw new Error('Не удалось загрузить ' + label + ': ' + primaryError.message +
+            '. Резервный источник: ' + backupError.message);
+        }
+      }
+      throw new Error('Не удалось загрузить ' + label + ': ' + primaryError.message);
+    }
+  }
+
+  async function loadRegistry() {
+    return requestJson(
+      appendQuery(dataUrl('projects.json'), 'v', Date.now()),
+      'список объектов',
+      appendQuery(RAW_DATA_ROOT + '/projects.json', 'v', Date.now())
+    );
+  }
   var draftKey = function () { return 'feed-studio-rules-v1-' + (state.project ? state.project.slug : 'default'); };
   var operationKey = function () { return 'feed-studio-publish-v1-' + (state.project ? state.project.slug : 'default'); };
   var feedRefreshKey = function () { return 'feed-studio-profitbase-refresh-v1-' + (state.project ? state.project.slug : 'default'); };
@@ -2229,8 +2294,7 @@
     var slug = state.project && state.project.slug;
     if (!slug) return;
     try {
-      var registryResponse = await fetch(dataUrl('projects.json') + '?v=' + Date.now(), { cache: 'no-store' });
-      if (registryResponse.ok) state.registry = await registryResponse.json();
+      state.registry = await loadRegistry();
       await loadProject(slug, true);
     } catch (error) {
       showToast('Фид опубликован. Обновите страницу, чтобы загрузить новые данные.');
@@ -2664,14 +2728,13 @@
     var base = dataUrl(project.base);
     var version = '?v=' + encodeURIComponent(cacheVersion());
     try {
-      var responses = await Promise.all([
-        fetch(base + '/inventory.json' + version, { cache: 'force-cache' }),
-        fetch(base + '/settings.json' + version, { cache: 'force-cache' }),
-        fetch(base + '/status.json' + version, { cache: 'force-cache' }),
-        fetch(base + '/assets.json' + version, { cache: 'force-cache' })
+      var backupBase = RAW_DATA_ROOT + '/projects/' + encodeURIComponent(project.slug);
+      var data = await Promise.all([
+        requestJson(base + '/inventory.json' + version, 'inventory.json', backupBase + '/inventory.json' + version),
+        requestJson(base + '/settings.json' + version, 'settings.json', backupBase + '/settings.json' + version),
+        requestJson(base + '/status.json' + version, 'status.json', backupBase + '/status.json' + version),
+        requestJson(base + '/assets.json' + version, 'assets.json', backupBase + '/assets.json' + version)
       ]);
-      if (responses.some(function (response) { return !response.ok; })) throw new Error('Не удалось загрузить данные кабинета.');
-      var data = await Promise.all(responses.map(function (response) { return response.json(); }));
       state.project = project;
       state.inventory = data[0];
       state.status = data[2];
@@ -2726,9 +2789,7 @@
 
   async function init() {
     try {
-      var response = await fetch(dataUrl('projects.json'), { cache: 'no-cache' });
-      if (!response.ok) throw new Error('Не удалось загрузить список объектов.');
-      state.registry = await response.json();
+      state.registry = await loadRegistry();
       $('#project-select').innerHTML = state.registry.projects.map(function (project) {
         var ready = projectIsReady(project);
         return '<option value="' + esc(project.slug) + '" ' + (ready ? '' : 'disabled') + '>' +
