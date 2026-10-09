@@ -55,6 +55,13 @@ const contentTypes = {
       const relative = url.pathname.replace(/^\/data\//, '');
       const target = path.resolve(dataRoot, relative);
       if (!target.startsWith(dataRoot) || !fs.existsSync(target)) return route.fulfill({ status: 404, body: 'Not found' });
+      if (relative === 'projects.json') {
+        const payload = JSON.parse(fs.readFileSync(target, 'utf8'));
+        payload.projects.forEach((project) => {
+          if (project.slug !== payload.default_project && project.status === 'active') project.available = false;
+        });
+        return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify(payload) });
+      }
       if (target.endsWith('assets.json')) {
         const payload = JSON.parse(fs.readFileSync(target, 'utf8'));
         payload.upload_service_url = 'https://feed-api.indigo-dm.ru';
@@ -89,6 +96,34 @@ const contentTypes = {
   const refreshButtonText = (await page.locator('#refresh-profitbase').innerText()).trim();
   const sourceStateText = (await page.locator('#feed-source-state').innerText()).trim();
   const staleManualDateHidden = refreshButtonText === 'Обновить Profitbase' && !sourceStateText.includes('27 сент.');
+  const availableProjects = await page.locator('#project-select option:not([disabled])').evaluateAll((options) => options.map((option) => ({
+    slug: option.value, name: option.textContent.trim()
+  })));
+  const switchedProjects = [];
+  for (const project of availableProjects) {
+    await page.locator('#project-select').selectOption(project.slug);
+    try {
+      await page.waitForFunction(({ slug, name }) => {
+        const select = document.querySelector('#project-select');
+        const heading = document.querySelector('#project-name');
+        const normalizedHeading = heading?.textContent.replace(/\s+/g, ' ').trim().toUpperCase();
+        return select?.value === slug && normalizedHeading === name.replace(/\s+/g, ' ').trim().toUpperCase();
+      }, project, { timeout: 10000 });
+    } catch (error) {
+      throw new Error('Project switch failed: ' + JSON.stringify({
+        requested: project,
+        selected: await page.locator('#project-select').inputValue(),
+        heading: await page.locator('#project-name').innerText(),
+        main: (await page.locator('main').innerText()).slice(0, 600),
+        errors
+      }));
+    }
+    switchedProjects.push(project.slug);
+  }
+  await page.locator('#project-select').selectOption('novyy-gorizont');
+  await page.waitForFunction(() => document.querySelector('#project-select')?.value === 'novyy-gorizont' &&
+    document.querySelector('#project-name')?.textContent.replace(/\s+/g, ' ').trim().toUpperCase() === 'ЖК НОВЫЙ ГОРИЗОНТ');
+  const projectSwitchingWorks = switchedProjects.length === availableProjects.length && availableProjects.length >= 4;
   const publicFeedHref = await page.locator('#full-feed-link').getAttribute('href');
   const initialCards = await page.locator('.asset-card').count();
   const activeBefore = await page.locator('.asset-status.active').count();
@@ -273,8 +308,13 @@ const contentTypes = {
   await page.waitForFunction(() => window.localStorage.getItem('feed-studio-publish-v1-novyy-gorizont'));
 
   const result = {
-    ok: errors.length === 0 && staleManualDateHidden && sourceStateText.includes('Источник проверен') && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 3 && activeBefore === 2 && selectedLibrary.some((text) => text.includes('Ключевой рендер')) && cardsAfterUpload === initialCards + 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 1 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.toLowerCase().includes('после публикации') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.color === '#123ABC' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && imagePlanOptions > 1 && /^plan-[0-9a-f]{12}$/.test(selectedImagePlan) && selectedImagePlanCount > 0 && imagePlanRuleCreated && individualParameterOptions === 8 && bulkParameterOptions === 9 && bulkDescriptionShortcodeExcluded && bulkDescriptionStartsEmpty && bulkDescriptionExpandVisible && bulkDescriptionModalVisible && bulkDescriptionModalSize.width > 700 && bulkDescriptionModalSize.height >= 320 && bulkDescriptionContentPreserved && bulkDescriptionEscapeCloses && descriptionEditorVisible && descriptionShortcodes >= 5 && descriptionShortcodeExcluded && addressShownFully && descriptionPreviewVisible && descriptionTemplateKept && descriptionResolved && planOptions > 1 && parameterToolbarLayout.planWidth <= 270 && parameterToolbarLayout.singleRow && /^plan-[0-9a-f]{12}$/.test(selectedPlan) && selectedPlanCount > 0 && parameterIndividualBefore === 1 && parameterIndividualLabels.includes('Описание') && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && excludedCardMarked === 1 && submitted && submitted.version === 3 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor),
+    ok: errors.length === 0 && projectSwitchingWorks && staleManualDateHidden && sourceStateText.includes('Источник проверен') && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 3 && activeBefore === 2 && selectedLibrary.some((text) => text.includes('Ключевой рендер')) && cardsAfterUpload === initialCards + 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 1 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.toLowerCase().includes('после публикации') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.color === '#123ABC' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && imagePlanOptions > 1 && /^plan-[0-9a-f]{12}$/.test(selectedImagePlan) && selectedImagePlanCount > 0 && imagePlanRuleCreated && individualParameterOptions === 8 && bulkParameterOptions === 9 && bulkDescriptionShortcodeExcluded && bulkDescriptionStartsEmpty && bulkDescriptionExpandVisible && bulkDescriptionModalVisible && bulkDescriptionModalSize.width > 700 && bulkDescriptionModalSize.height >= 320 && bulkDescriptionContentPreserved && bulkDescriptionEscapeCloses && descriptionEditorVisible && descriptionShortcodes >= 5 && descriptionShortcodeExcluded && addressShownFully && descriptionPreviewVisible && descriptionTemplateKept && descriptionResolved && planOptions > 1 && parameterToolbarLayout.planWidth <= 270 && parameterToolbarLayout.singleRow && /^plan-[0-9a-f]{12}$/.test(selectedPlan) && selectedPlanCount > 0 && parameterIndividualBefore === 1 && parameterIndividualLabels.includes('Описание') && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && excludedCardMarked === 1 && submitted && submitted.version === 3 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor),
     errors,
+    project_switching: {
+      available: availableProjects.map((project) => project.slug),
+      switched: switchedProjects,
+      works: projectSwitchingWorks
+    },
     feed_refresh_status: {
       button: refreshButtonText,
       source: sourceStateText,
