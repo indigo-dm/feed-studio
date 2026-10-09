@@ -2710,13 +2710,14 @@
         menu.classList.toggle('open', open);
         feedLinksToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
       });
-      $('#feed-links-list a').forEach(function (link) {
-        link.addEventListener('click', function () {
+      var feedLinks = document.querySelectorAll('#feed-links-list a');
+      for (var feedLinkIndex = 0; feedLinkIndex < feedLinks.length; feedLinkIndex += 1) {
+        feedLinks[feedLinkIndex].addEventListener('click', function () {
           var menu = $('#feed-links-menu');
           menu.classList.remove('open');
           feedLinksToggle.setAttribute('aria-expanded', 'false');
         });
-      });
+      }
     }
     $('#project-select').addEventListener('change', function (event) { loadProject(event.target.value); });
     $('#add-project').addEventListener('click', openProjectModal);
