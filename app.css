@@ -20,6 +20,7 @@ button{cursor:pointer}
 .nav-icon{width:24px;color:var(--gold);font-size:20px;line-height:1;text-align:center}.nav-item.active .nav-icon{color:#fff}
 .sidebar-link{margin:14px 12px 0;color:rgba(255,255,255,.6);font-size:11px;line-height:1.35;text-decoration:none;white-space:nowrap}.sidebar-link:hover{color:#fff}
 .sidebar-link-secondary{margin-top:7px}
+.feed-links-toggle{display:none}.feed-links-list .sidebar-link{display:block}
 .workspace{min-width:0}
 .topbar{min-height:108px;padding:22px 38px;border-bottom:1px solid var(--line);background:rgba(242,242,242,.92);backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:space-between;gap:24px}
 .eyebrow{margin:0 0 4px;color:var(--green);font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}
@@ -81,3 +82,14 @@ input:focus,select:focus,textarea:focus{border-color:var(--green);box-shadow:0 0
 @media(max-width:1180px){.parameter-toolbar,.image-toolbar{grid-template-columns:repeat(3,minmax(0,1fr))}.parameter-toolbar .search-field,.image-toolbar .search-field{grid-column:span 2}.parameter-toolbar .toolbar-count,.image-toolbar .toolbar-count{grid-column:auto}}
 @media(max-width:860px){.parameter-toolbar,.image-toolbar{grid-template-columns:1fr 1fr}.parameter-toolbar .search-field,.image-toolbar .search-field{grid-column:1/-1}}
 @media(max-width:560px){.parameter-toolbar,.image-toolbar{grid-template-columns:1fr}.parameter-toolbar .search-field,.image-toolbar .search-field{grid-column:auto}}
+
+@media(max-width:860px){
+  .feed-links-menu{margin:12px 10px 0;border:1px solid rgba(126,63,242,.55);border-radius:10px;background:rgba(126,63,242,.12);overflow:hidden}
+  .feed-links-toggle{width:100%;min-height:42px;padding:0 13px;border:0;background:transparent;color:#fff;display:flex;align-items:center;justify-content:space-between;font-weight:750;text-align:left}
+  .feed-links-toggle span:last-child{font-size:18px;transition:transform .18s ease}
+  .feed-links-menu.open .feed-links-toggle span:last-child{transform:rotate(180deg)}
+  .feed-links-list{display:none;padding:0 13px 12px}
+  .feed-links-menu.open .feed-links-list{display:block}
+  .feed-links-menu .sidebar-link{display:block;margin:8px 0 0;color:rgba(255,255,255,.78);white-space:normal}
+  .feed-links-menu .sidebar-link:hover{color:#fff}
+}

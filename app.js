@@ -2702,6 +2702,22 @@
     $('#publish-modal').addEventListener('click', function (event) {
       if (event.target.id === 'publish-modal') $('#publish-modal').classList.add('hidden');
     });
+    var feedLinksToggle = $('#feed-links-toggle');
+    if (feedLinksToggle) {
+      feedLinksToggle.addEventListener('click', function () {
+        var menu = $('#feed-links-menu');
+        var open = !menu.classList.contains('open');
+        menu.classList.toggle('open', open);
+        feedLinksToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+      $('#feed-links-list a').forEach(function (link) {
+        link.addEventListener('click', function () {
+          var menu = $('#feed-links-menu');
+          menu.classList.remove('open');
+          feedLinksToggle.setAttribute('aria-expanded', 'false');
+        });
+      });
+    }
     $('#project-select').addEventListener('change', function (event) { loadProject(event.target.value); });
     $('#add-project').addEventListener('click', openProjectModal);
     $('#cancel-project').addEventListener('click', function () { $('#project-modal').classList.add('hidden'); });
