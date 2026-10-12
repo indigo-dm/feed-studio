@@ -13,6 +13,14 @@ const frontend = __dirname;
 const dataRoot = path.resolve(__dirname, '..', 'novyy-gorizont', 'feed-generator', 'fast-site');
 const qaInventory = JSON.parse(fs.readFileSync(path.join(dataRoot, 'projects', 'novyy-gorizont', 'inventory.json'), 'utf8'));
 const qaPublishedSettings = JSON.parse(fs.readFileSync(path.join(dataRoot, 'projects', 'novyy-gorizont', 'settings.json'), 'utf8'));
+const qaLot = qaInventory.items[0];
+qaPublishedSettings.image_settings ||= { lot_overrides: {}, bulk_rules: [] };
+qaPublishedSettings.parameter_settings ||= { lot_values: {}, bulk_rules: [] };
+if (qaLot && !Object.keys(qaPublishedSettings.image_settings.lot_overrides || {}).length) {
+  qaPublishedSettings.image_settings.lot_overrides = {
+    [String(qaLot.id)]: { order: (qaLot.feed_images || []).map((image) => image.id), hidden: [], added: [] }
+  };
+}
 const contentTypes = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.js': 'application/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8',
@@ -71,6 +79,9 @@ const contentTypes = {
           if (project.slug !== payload.default_project && project.status === 'active') project.available = false;
         });
         return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify(payload) });
+      }
+      if (target.endsWith('settings.json')) {
+        return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify(qaPublishedSettings) });
       }
       if (target.endsWith('assets.json')) {
         const payload = JSON.parse(fs.readFileSync(target, 'utf8'));
@@ -264,13 +275,44 @@ const contentTypes = {
   const addressOptionTitle = await addressOption.getAttribute('title');
   const addressShownFully = Boolean(sourceAddress) && addressOptionText.endsWith(sourceAddress) && String(addressOptionTitle || '').endsWith(sourceAddress);
   await page.locator('#description-editor-wrap [data-rich-editor]').evaluate((editor) => {
+    editor.innerHTML = '<div>Первый абзац</div><div><strong>Второй абзац</strong></div><ul><li>Пункт списка</li></ul>';
+    editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+  });
+  await page.locator('[data-view="dashboard"]').click();
+  await page.locator('[data-view="parameters"]').click();
+  const normalizedDescriptionHtml = await page.locator('#description-editor-wrap [data-rich-editor]').innerHTML();
+  const descriptionFormattingPreserved = await page.locator('#description-editor-wrap [data-description-preview]').evaluate((preview) => {
+    const paragraphs = preview.querySelectorAll('p');
+    const list = preview.querySelector('ul');
+    return paragraphs.length === 2 && Boolean(preview.querySelector('strong')) && Boolean(list) &&
+      parseFloat(getComputedStyle(paragraphs[0]).marginBottom) > 0 && getComputedStyle(list).listStyleType !== 'none';
+  });
+  const descriptionBlocksNormalized = normalizedDescriptionHtml.includes('<p>Первый абзац</p>') &&
+    normalizedDescriptionHtml.includes('<p><strong>Второй абзац</strong></p>') && normalizedDescriptionHtml.includes('<ul><li>Пункт списка</li></ul>');
+  await page.locator('#description-editor-wrap').screenshot({ path: path.join(os.tmpdir(), 'feed-studio-description-formatting-qa.png') });
+  await page.locator('#description-editor-wrap [data-rich-editor]').evaluate((editor) => {
     editor.innerHTML = '<p><strong>Площадь</strong>: {{Square}} м²</p>';
     editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
   });
   const descriptionTemplateKept = (await page.locator('#description-editor-wrap [data-rich-editor]').innerHTML()).includes('{{Square}}');
   const descriptionPreviewText = await page.locator('#description-editor-wrap [data-description-preview]').innerText();
   const descriptionResolved = descriptionPreviewText.includes('Площадь') && !descriptionPreviewText.includes('{{Square}}');
+  const roomsParameterAvailable = await page.locator('#new-parameter-tag option[value="Rooms"]').count() === 1 &&
+    await page.locator('#bulk-parameter-tag option[value="Rooms"]').count() === 1;
+  await page.locator('#new-parameter-tag').selectOption('Rooms');
   await page.locator('#add-parameter').click();
+  const roomsInput = page.locator('#parameter-list [data-param-value="Rooms"]');
+  const sourceRooms = String(parameterItem?.source_values?.Rooms || parameterItem?.rooms || '');
+  const roomsStartsFromSource = await roomsInput.inputValue() === sourceRooms;
+  const changedRooms = sourceRooms === '1' ? '2' : '1';
+  await roomsInput.fill(changedRooms);
+  await roomsInput.press('Tab');
+  await page.locator('#description-editor-wrap [data-rich-editor]').evaluate((editor) => {
+    editor.innerHTML = '<p>Комнат после правки: {{Rooms}}</p>';
+    editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+  });
+  const roomsDescriptionPreview = await page.locator('#description-editor-wrap [data-description-preview]').innerText();
+  const roomsShortcodeUsesOverride = roomsDescriptionPreview.includes('Комнат после правки: ' + changedRooms);
   const parameterIndividualBefore = await page.locator('#parameter-individual-rules .individual-rule').count();
   const parameterIndividualLabels = await page.locator('#parameter-individual-rules .individual-rule').first().innerText();
   await page.locator('#parameter-individual-rules [data-open-parameter-individual]').first().click();
@@ -321,7 +363,7 @@ const contentTypes = {
   await page.waitForFunction(() => window.localStorage.getItem('feed-studio-publish-v1-novyy-gorizont'));
 
   const result = {
-    ok: errors.length === 0 && redundantDraftCleared && emptyPublishDisabled && !emptyDraftStatus.includes('не применён') && projectSwitchingWorks && staleManualDateHidden && sourceStateText.includes('Источник проверен') && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 3 && activeBefore === 2 && selectedLibrary.some((text) => text.includes('Ключевой рендер')) && cardsAfterUpload === initialCards + 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 1 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.toLowerCase().includes('после публикации') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.color === '#123ABC' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && imagePlanOptions > 1 && /^plan-[0-9a-f]{12}$/.test(selectedImagePlan) && selectedImagePlanCount > 0 && imagePlanRuleCreated && individualParameterOptions === 8 && bulkParameterOptions === 9 && bulkDescriptionShortcodeExcluded && bulkDescriptionStartsEmpty && bulkDescriptionExpandVisible && bulkDescriptionModalVisible && bulkDescriptionModalSize.width > 700 && bulkDescriptionModalSize.height >= 320 && bulkDescriptionContentPreserved && bulkDescriptionEscapeCloses && descriptionEditorVisible && descriptionShortcodes >= 5 && descriptionShortcodeExcluded && addressShownFully && descriptionPreviewVisible && descriptionTemplateKept && descriptionResolved && planOptions > 1 && parameterToolbarLayout.planWidth <= 270 && parameterToolbarLayout.singleRow && /^plan-[0-9a-f]{12}$/.test(selectedPlan) && selectedPlanCount > 0 && parameterIndividualBefore === 1 && parameterIndividualLabels.includes('Описание') && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && excludedCardMarked === 1 && submitted && submitted.version === 3 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor),
+    ok: errors.length === 0 && redundantDraftCleared && emptyPublishDisabled && !emptyDraftStatus.includes('не применён') && projectSwitchingWorks && staleManualDateHidden && sourceStateText.includes('Источник проверен') && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 3 && activeBefore === 2 && selectedLibrary.some((text) => text.includes('Ключевой рендер')) && cardsAfterUpload === initialCards + 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 1 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.toLowerCase().includes('после публикации') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.color === '#123ABC' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && imagePlanOptions > 1 && /^plan-[0-9a-f]{12}$/.test(selectedImagePlan) && selectedImagePlanCount > 0 && imagePlanRuleCreated && individualParameterOptions === 9 && bulkParameterOptions === 10 && bulkDescriptionShortcodeExcluded && bulkDescriptionStartsEmpty && bulkDescriptionExpandVisible && bulkDescriptionModalVisible && bulkDescriptionModalSize.width > 700 && bulkDescriptionModalSize.height >= 320 && bulkDescriptionContentPreserved && bulkDescriptionEscapeCloses && descriptionEditorVisible && descriptionShortcodes >= 5 && descriptionShortcodeExcluded && addressShownFully && descriptionPreviewVisible && descriptionBlocksNormalized && descriptionFormattingPreserved && descriptionTemplateKept && descriptionResolved && roomsParameterAvailable && roomsStartsFromSource && roomsShortcodeUsesOverride && planOptions > 1 && parameterToolbarLayout.planWidth <= 270 && parameterToolbarLayout.singleRow && /^plan-[0-9a-f]{12}$/.test(selectedPlan) && selectedPlanCount > 0 && parameterIndividualBefore === 1 && parameterIndividualLabels.includes('Описание') && parameterIndividualLabels.includes('Количество комнат') && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && excludedCardMarked === 1 && submitted && submitted.version === 3 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor),
     errors,
     empty_draft: {
       cleared: redundantDraftCleared,
@@ -361,8 +403,13 @@ const contentTypes = {
       address_shown_fully: addressShownFully,
       address_option: addressOptionText,
       description_preview_visible: descriptionPreviewVisible,
+      description_blocks_normalized: descriptionBlocksNormalized,
+      description_formatting_preserved: descriptionFormattingPreserved,
       description_template_kept: descriptionTemplateKept,
       description_resolved: descriptionResolved,
+      rooms_parameter_available: roomsParameterAvailable,
+      rooms_starts_from_source: roomsStartsFromSource,
+      rooms_shortcode_uses_override: roomsShortcodeUsesOverride,
       plan_options: planOptions,
       toolbar_layout: parameterToolbarLayout,
       selected_plan: selectedPlan,

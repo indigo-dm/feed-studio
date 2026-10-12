@@ -1576,6 +1576,13 @@
       Array.from(node.childNodes).forEach(clean);
       if (node.nodeType !== 1 || node === doc.body) return;
       var tag = node.tagName;
+      if (tag === 'DIV') {
+        var paragraph = doc.createElement('p');
+        while (node.firstChild) paragraph.appendChild(node.firstChild);
+        node.replaceWith(paragraph);
+        node = paragraph;
+        tag = node.tagName;
+      }
       if (tag === 'B' || tag === 'I') {
         var replacement = doc.createElement(tag === 'B' ? 'strong' : 'em');
         while (node.firstChild) replacement.appendChild(node.firstChild);
@@ -1596,8 +1603,11 @@
 
   function descriptionValues(item) {
     var values = Object.assign({}, item.source_values || {});
+    var overrides = effectiveParameters(item);
+    delete overrides[DESCRIPTION_TAG];
+    Object.assign(values, overrides);
     Object.assign(values, {
-      id: item.id, house: item.house, rooms: item.rooms, area: item.area,
+      id: item.id, house: item.house, rooms: values.Rooms != null ? values.Rooms : item.rooms, area: item.area,
       floor: item.floor, floors: item.floors, price: item.price, decoration: item.decoration
     });
     if (!values.Description) values.Description = item.source_description || '';
@@ -1713,7 +1723,8 @@
     editor.addEventListener('input', function () { rememberSelection(); update(true); });
     editor.addEventListener('paste', function (event) {
       event.preventDefault();
-      document.execCommand('insertText', false, event.clipboardData.getData('text/plain'));
+      var pasted = event.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
+      document.execCommand('insertHTML', false, esc(pasted).replace(/\n/g, '<br>'));
     });
     $$('[data-rich-command]', root).forEach(function (button) {
       button.addEventListener('mousedown', function (event) { event.preventDefault(); });
@@ -1769,6 +1780,16 @@
     return (state.inventory.parameter_catalog || []).find(function (item) { return item.tag === tag; });
   }
 
+  function initialParameterValue(catalog, item) {
+    if (!catalog) return '';
+    if (catalog.kind === 'richtext') return '';
+    if (catalog.kind === 'multi') return [catalog.values[0]];
+    var source = item && item.source_values ? item.source_values[catalog.tag] : null;
+    if (source != null && String(source).trim()) return String(source).trim();
+    if (catalog.values && catalog.values.length) return catalog.values[0];
+    return catalog.min != null ? String(catalog.min) : '';
+  }
+
   function effectiveParameters(item) {
     var values = {};
     state.parameterSettings.bulk_rules.forEach(function (rule) {
@@ -1820,10 +1841,10 @@
     closeExpandedDescriptionEditor();
     var catalog = parameterByTag($('#bulk-parameter-tag').value);
     var root = $('#bulk-parameter-value');
-    var defaultValue = catalog && catalog.kind === 'richtext' ? '' : catalog && catalog.kind === 'multi' ? [catalog.values[0]] : catalog && catalog.values ? catalog.values[0] : catalog ? catalog.min : '';
+    var item = state.inventory.items.find(function (lot) { return lot.id === state.parameterLotId; }) || state.inventory.items[0];
+    var defaultValue = initialParameterValue(catalog, item);
     root.innerHTML = catalog ? '<label class="field"><span>Значение</span>' + parameterControl(catalog, defaultValue, 'bulk-param') + '</label>' : '';
     if (catalog && catalog.kind === 'richtext') {
-      var item = state.inventory.items.find(function (lot) { return lot.id === state.parameterLotId; }) || state.inventory.items[0];
       if (item) bindRichTextEditor(root, item, null);
     }
   }
@@ -2678,8 +2699,7 @@
       if (Object.prototype.hasOwnProperty.call(effectiveParameters(item), catalog.tag)) {
         showToast('Этот параметр уже назначен квартире.'); return;
       }
-      state.parameterSettings.lot_values[item.id][catalog.tag] = catalog.kind === 'multi' ? [catalog.values[0]] :
-        catalog.kind === 'number' ? String(catalog.min) : catalog.values[0];
+      state.parameterSettings.lot_values[item.id][catalog.tag] = initialParameterValue(catalog, item);
       setDirty(true);
       renderParameters();
     });

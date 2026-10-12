@@ -93,3 +93,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--green);box-shadow:0 0
   .feed-links-menu .sidebar-link{display:block;margin:8px 0 0;color:rgba(255,255,255,.78);white-space:normal}
   .feed-links-menu .sidebar-link:hover{color:#fff}
 }
+
+.description-preview p{margin:0 0 10px}
+.description-preview p:last-child{margin-bottom:0}
+.description-preview ul,.description-preview ol{margin:8px 0;padding-left:24px}
+.description-preview li+li{margin-top:4px}
