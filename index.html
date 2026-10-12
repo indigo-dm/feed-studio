@@ -9,7 +9,7 @@
   <meta name="description" content="Feed Studio — управление брендированными фидами объектов недвижимости">
   <title>Feed Studio — управление фидами</title>
   <link rel="icon" href="assets/indigo-logo.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="app.css?v=20261009-mobile-copy-1">
+  <link rel="stylesheet" href="app.css?v=20261012-orion-source-1">
 </head>
 <body class="access-locked">
   <section class="access-gate" id="access-gate" aria-labelledby="access-title">
@@ -257,6 +257,18 @@
           <div class="assets-layout">
             <section class="panel">
               <div class="panel-heading"><div><p class="eyebrow">Фирменные материалы</p><h2>Логотипы, рендеры и цвета</h2></div></div>
+              <section class="source-feed-settings" aria-labelledby="source-feed-settings-title">
+                <div class="source-feed-heading">
+                  <div><p class="eyebrow">Источник данных</p><h2 id="source-feed-settings-title">Родительский фид Profitbase</h2></div>
+                  <span class="source-feed-badge" id="source-feed-badge">Проверяем…</span>
+                </div>
+                <p class="helper">Закрытая ссылка хранится отдельно от материалов и не отображается после сохранения. Чтобы заменить адрес, вставьте новую ссылку целиком.</p>
+                <div class="source-feed-row">
+                  <label class="field"><span>Новый адрес родительского фида</span><input id="source-feed-url" type="url" inputmode="url" maxlength="4096" placeholder="https://…" autocomplete="off" spellcheck="false"></label>
+                  <button class="button button-secondary" id="save-source-feed" type="button">Сохранить адрес</button>
+                </div>
+                <p class="source-feed-detail" id="source-feed-detail">Статус источника загружается…</p>
+              </section>
               <div class="material-upload-block">
                 <input id="material-file-input" type="file" accept="image/jpeg,image/png,image/webp,image/svg+xml" hidden>
                 <div class="image-drop-zone" id="material-drop-zone" tabindex="0" role="button" aria-label="Загрузить фирменный материал">
@@ -374,8 +386,8 @@
       </div>
     </div>
   </div>
-  <script src="runtime-config.js?v=20261009-mobile-copy-1" defer></script>
-  <script src="access-config.js?v=20261009-mobile-copy-1" defer></script>
-  <script src="access.js?v=20261009-mobile-copy-1" defer></script>
+  <script src="runtime-config.js?v=20261012-orion-source-1" defer></script>
+  <script src="access-config.js?v=20261012-orion-source-1" defer></script>
+  <script src="access.js?v=20261012-orion-source-1" defer></script>
 </body>
 </html>

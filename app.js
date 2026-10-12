@@ -39,6 +39,9 @@
     materialUploadBusy: false,
     materialUploadMessage: '',
     materialUploadTone: '',
+    sourceFeedStatus: null,
+    sourceFeedBusy: false,
+    setupMode: false,
     pendingUploadDeletions: [],
     publishOperation: null,
     publishPollTimer: null,
@@ -175,7 +178,7 @@
   var emptyMaterialSettings = function () { return { logo: '', key_render: '', primary_color: '', palette: [] }; };
 
   function projectIsReady(project) {
-    return Boolean(project && (project.available || project.status === 'active'));
+    return Boolean(project && project.available);
   }
 
   function itemMatchesFilters(item, filters) {
@@ -350,10 +353,15 @@
     var publishButton = $('#publish-settings');
     var publishInProgress = Boolean(state.publishOperation && ['queued', 'building'].indexOf(state.publishOperation.status) >= 0);
     if (publishButton) {
-      publishButton.disabled = !pendingChanges || publishInProgress;
-      publishButton.title = pendingChanges ? '' : 'Нет изменений для применения';
+      publishButton.disabled = state.setupMode || !pendingChanges || publishInProgress;
+      publishButton.title = state.setupMode ? 'Сначала подключите источник и завершите настройку объекта' : (pendingChanges ? '' : 'Нет изменений для применения');
     }
     label.className = 'saved-state';
+    if (state.setupMode) {
+      label.textContent = 'Объект настраивается';
+      label.classList.add('processing');
+      return;
+    }
     if (publishInProgress) {
       label.textContent = state.publishOperation.status === 'queued' ? 'Настройки приняты · ожидают сборки' : 'Фид пересобирается…';
       label.classList.add('processing');
@@ -753,6 +761,17 @@
     $('#source-feed-link').textContent = 'Полученный фид из Profitbase' + feedLinkAction;
     $('#full-feed-link').textContent = 'Полный фид · ' + state.inventory.full_ads + ' квартир' + feedLinkAction;
     $('#pilot-feed-link').textContent = 'Тестовый фид · ' + state.status.unique_plans + ' планировок' + feedLinkAction;
+    $('#feed-links-menu').classList.toggle('hidden', state.setupMode);
+    $$('.nav-item').forEach(function (button) {
+      button.disabled = state.setupMode && button.dataset.view !== 'assets';
+    });
+    $('#review-unsaved').disabled = state.setupMode;
+    $('#save-draft').disabled = state.setupMode;
+    $('#publish-settings').disabled = state.setupMode;
+    if (state.setupMode) {
+      $('#saved-state').textContent = 'Объект настраивается';
+      $('#saved-state').className = 'saved-state processing';
+    }
     if (state.assets && state.assets.brand) {
       document.documentElement.style.setProperty('--project-gold', state.assets.brand.gold);
       document.documentElement.style.setProperty('--project-ink', state.assets.brand.green_dark);
@@ -761,6 +780,7 @@
 
   function renderAssets() {
     if (!state.assets) return;
+    renderSourceFeedSettings();
     $('#asset-grid').innerHTML = state.assets.items.map(function (asset) {
       var preview = asset.exists ? '<img src="' + esc(versionedUrl(asset.url)) + '" alt="' + esc(asset.name) + '" loading="lazy" decoding="async">' :
         '<div class="asset-missing">Файл не загружен</div>';
@@ -821,6 +841,109 @@
       });
     });
     renderMaterialUploadState();
+  }
+
+  function renderSourceFeedSettings() {
+    var badge = $('#source-feed-badge');
+    var detail = $('#source-feed-detail');
+    var button = $('#save-source-feed');
+    var input = $('#source-feed-url');
+    if (!badge || !detail || !button || !input) return;
+    var source = state.sourceFeedStatus;
+    button.disabled = state.sourceFeedBusy || !state.project || !uploadServiceUrl();
+    button.textContent = state.sourceFeedBusy ? 'Сохраняем…' : 'Сохранить адрес';
+    detail.className = 'source-feed-detail';
+    badge.className = 'source-feed-badge';
+    if (!uploadServiceUrl()) {
+      badge.textContent = 'Недоступно';
+      badge.classList.add('missing');
+      detail.textContent = 'Сервис защищённых настроек не подключён.';
+      return;
+    }
+    if (source && source.error) {
+      badge.textContent = 'Ошибка';
+      badge.classList.add('missing');
+      detail.textContent = source.error;
+      detail.classList.add('error');
+      return;
+    }
+    if (source && source.configured) {
+      badge.textContent = 'Подключён';
+      badge.classList.add('ready');
+      detail.textContent = 'Сохранён закрытый адрес на домене ' + source.hostname +
+        (source.updatedAt ? ' · изменён ' + formatDateTime(source.updatedAt) : '') + '. Сам адрес повторно не отображается.';
+      return;
+    }
+    if (source && !source.configured && state.project && state.project.available) {
+      badge.textContent = 'Подключён';
+      badge.classList.add('ready');
+      detail.textContent = 'Пока используется прежняя системная настройка. Вставьте новый адрес, чтобы перевести объект на управление через интерфейс.';
+      return;
+    }
+    if (source) {
+      badge.textContent = 'Не указан';
+      badge.classList.add('missing');
+      detail.textContent = 'Добавьте закрытую HTTPS-ссылку Profitbase для этого объекта.';
+      return;
+    }
+    badge.textContent = 'Проверяем…';
+    detail.textContent = 'Статус источника загружается…';
+  }
+
+  async function loadSourceFeedStatus() {
+    state.sourceFeedStatus = null;
+    renderSourceFeedSettings();
+    if (!state.project || !uploadServiceUrl()) return;
+    var credential = window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.get ? window.FEED_STUDIO_CREDENTIAL.get() : '';
+    if (!credential) return;
+    try {
+      var response = await fetch(serviceEndpoint('/source-feed?project=' + encodeURIComponent(state.project.slug)), {
+        headers: { Authorization: 'Bearer ' + credential },
+        cache: 'no-store'
+      });
+      var payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Не удалось проверить источник.');
+      state.sourceFeedStatus = payload;
+    } catch (error) {
+      state.sourceFeedStatus = { error: error.message || 'Не удалось проверить источник.' };
+    }
+    renderSourceFeedSettings();
+  }
+
+  async function saveSourceFeed() {
+    if (!state.project || state.sourceFeedBusy || !uploadServiceUrl()) return;
+    var input = $('#source-feed-url');
+    var value = input.value.trim();
+    if (!/^https:\/\//i.test(value)) {
+      showToast('Укажите полный HTTPS-адрес родительского фида.');
+      input.focus();
+      return;
+    }
+    var credential = window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.get ? window.FEED_STUDIO_CREDENTIAL.get() : '';
+    if (!credential) {
+      showToast('Выйдите и войдите в Feed Studio повторно.');
+      return;
+    }
+    state.sourceFeedBusy = true;
+    renderSourceFeedSettings();
+    try {
+      var response = await fetch(serviceEndpoint('/source-feed'), {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + credential, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project: state.project.slug, url: value })
+      });
+      var payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Не удалось сохранить адрес.');
+      state.sourceFeedStatus = payload;
+      input.value = '';
+      showToast('Закрытый адрес сохранён. Для действующего объекта нажмите «Обновить Profitbase».');
+    } catch (error) {
+      state.sourceFeedStatus = { error: error.message || 'Не удалось сохранить адрес.' };
+      showToast(state.sourceFeedStatus.error);
+    } finally {
+      state.sourceFeedBusy = false;
+      renderSourceFeedSettings();
+    }
   }
 
   function addBrandColor() {
@@ -1046,7 +1169,7 @@
       sourceState.title = 'Дата последнего получения фида Profitbase — автоматического или ручного.';
     }
     button.className = 'button button-secondary feed-refresh-button';
-    button.disabled = state.feedRefreshBusy || ['queued', 'building', 'deploying'].indexOf(status) >= 0 || !state.project || !uploadServiceUrl();
+    button.disabled = state.setupMode || state.feedRefreshBusy || ['queued', 'building', 'deploying'].indexOf(status) >= 0 || !state.project || !uploadServiceUrl();
     if (status === 'queued') {
       button.textContent = 'Обновление в очереди…';
       button.classList.add('processing');
@@ -2653,6 +2776,13 @@
         addBrandColor();
       }
     });
+    $('#save-source-feed').addEventListener('click', saveSourceFeed);
+    $('#source-feed-url').addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        saveSourceFeed();
+      }
+    });
     $('#add-image-url').addEventListener('click', function () {
       var item = state.inventory.items.find(function (lot) { return lot.id === state.imageLotId; });
       var input = $('#new-image-url');
@@ -2804,8 +2934,7 @@
     var project = state.registry.projects.find(function (item) { return item.slug === slug; });
     if (!project) return;
     if (!projectIsReady(project)) {
-      showToast('Объект создан, но источник Profitbase ещё не подключён.');
-      $('#project-select').value = state.project ? state.project.slug : state.registry.default_project;
+      await loadSetupProject(project);
       return;
     }
     var base = dataUrl(project.base);
@@ -2819,6 +2948,7 @@
         requestJson(base + '/assets.json' + version, 'assets.json', backupBase + '/assets.json' + version)
       ]);
       state.project = project;
+      state.setupMode = false;
       state.inventory = data[0];
       state.status = data[2];
       state.assets = data[3];
@@ -2854,11 +2984,14 @@
       state.materialUploadBusy = false;
       state.materialUploadMessage = '';
       state.materialUploadTone = '';
+      state.sourceFeedStatus = null;
+      state.sourceFeedBusy = false;
       state.page = 1;
       state.filters = { house: '', rooms: '', floor: '', search: '' };
       state.imageFilters = { house: '', rooms: '', floor: '', plan: '', search: '' };
       state.parameterFilters = { house: '', rooms: '', floor: '', plan: '', search: '' };
       await loadMaterialLibrary();
+      await loadSourceFeedStatus();
       populateFilters();
       renderAll();
       navigate(state.activeView);
@@ -2870,12 +3003,75 @@
     }
   }
 
+  async function loadSetupProject(project) {
+    var credential = window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.get ? window.FEED_STUDIO_CREDENTIAL.get() : '';
+    if (!credential || !SERVICE_ROOT) {
+      showToast('Для настройки нового объекта войдите в Feed Studio повторно.');
+      $('#project-select').value = state.project ? state.project.slug : state.registry.default_project;
+      return;
+    }
+    try {
+      var response = await fetch(serviceEndpoint('/project/setup?project=' + encodeURIComponent(project.slug)), {
+        headers: { Authorization: 'Bearer ' + credential },
+        cache: 'no-store'
+      });
+      var payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Не удалось загрузить настройки объекта.');
+      var settings = payload.settings || {};
+      state.project = project;
+      state.setupMode = true;
+      state.inventory = {
+        slug: project.slug,
+        project: project.name,
+        checked_at: '',
+        source_ads: 0,
+        full_ads: 0,
+        unique_plans: 0,
+        source_tag_counts: {},
+        parameter_catalog: [],
+        items: []
+      };
+      state.status = { unique_plans: 0, active_promotions: 0, checked_at: '' };
+      state.assets = payload.assets;
+      state.publishedRules = (settings.rules || []).map(normalizeRule);
+      state.rules = clone(state.publishedRules);
+      state.publishedImageSettings = normalizeImageSettings(settings.image_settings || emptyImageSettings());
+      state.imageSettings = clone(state.publishedImageSettings);
+      state.publishedParameterSettings = normalizeParameterSettings(settings.parameter_settings || emptyParameterSettings());
+      state.parameterSettings = clone(state.publishedParameterSettings);
+      state.publishedMaterialSettings = normalizeMaterialSettings(settings.material_settings || emptyMaterialSettings(), state.assets);
+      state.materialSettings = clone(state.publishedMaterialSettings);
+      state.publishedExcludedLotIds = [];
+      state.excludedLotIds = [];
+      state.pendingUploadDeletions = [];
+      state.draftSaved = false;
+      state.dirty = false;
+      state.sourceFeedStatus = null;
+      state.sourceFeedBusy = false;
+      state.materialUploadBusy = false;
+      state.materialUploadMessage = '';
+      state.materialUploadTone = '';
+      state.filters = { house: '', rooms: '', floor: '', search: '' };
+      state.imageFilters = { house: '', rooms: '', floor: '', plan: '', search: '' };
+      state.parameterFilters = { house: '', rooms: '', floor: '', plan: '', search: '' };
+      await loadMaterialLibrary();
+      await loadSourceFeedStatus();
+      populateFilters();
+      renderAll();
+      navigate('assets');
+      showToast('Объект открыт в режиме первоначальной настройки.');
+    } catch (error) {
+      showToast(error.message || 'Не удалось открыть настройки объекта.');
+      $('#project-select').value = state.project ? state.project.slug : state.registry.default_project;
+    }
+  }
+
   async function init() {
     try {
       state.registry = await loadRegistry();
       $('#project-select').innerHTML = state.registry.projects.map(function (project) {
         var ready = projectIsReady(project);
-        return '<option value="' + esc(project.slug) + '" ' + (ready ? '' : 'disabled') + '>' +
+        return '<option value="' + esc(project.slug) + '">' +
           esc(project.name) + (ready ? '' : ' · настройка') + '</option>';
       }).join('');
       bindStaticEvents();

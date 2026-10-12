@@ -33,6 +33,7 @@ const contentTypes = {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   const errors = [];
   let submitted = null;
+  let sourceFeedSaved = null;
   const accessConfig = fs.readFileSync(path.join(frontend, 'access-config.js'), 'utf8');
   const hash = accessConfig.match(/[0-9a-f]{64}/i)[0].toLowerCase();
   await page.addInitScript(({ key, publishedSettings }) => {
@@ -102,6 +103,39 @@ const contentTypes = {
         url: 'https://assets.example.test/mat-qa-new.png', uploaded: true, active_for: []
       }) });
     }
+    if (url.pathname === '/project/setup' && route.request().method() === 'GET') {
+      const slug = url.searchParams.get('project');
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({
+        project: slug,
+        settings: {
+          version: 2, rules: [], excluded_lot_ids: [],
+          image_settings: { lot_overrides: {}, bulk_rules: [] },
+          parameter_settings: { lot_values: {}, bulk_rules: [] },
+          material_settings: {
+            logo: 'logo.svg', key_render: 'key-render.jpg', primary_color: '#3F245C',
+            palette: [{ name: 'Основной', value: '#3F245C' }]
+          }
+        },
+        assets: {
+          project: slug, slug, upload_service_url: 'https://feed-api.indigo-dm.ru',
+          current: { logo: 'logo.svg', key_render: 'key-render.jpg' },
+          brand: { green: '#3F245C', green_dark: '#1D1D1B', gold: '#924694', gray: '#48277F', white: '#FFFFFF', font: 'Manrope', palette: [{ name: 'Основной', value: '#3F245C' }] },
+          items: [
+            { key: 'logo', name: 'Логотип', filename: 'logo.svg', exists: true, url: 'https://assets.example.test/logo.png', active_for: ['logo'] },
+            { key: 'key-render', name: 'Ключевой рендер', filename: 'key-render.jpg', exists: true, url: 'https://assets.example.test/render.png', active_for: ['key_render'] }
+          ]
+        }
+      }) });
+    }
+    if (url.pathname === '/source-feed' && route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({ project: url.searchParams.get('project'), configured: false }) });
+    }
+    if (url.pathname === '/source-feed' && route.request().method() === 'POST') {
+      sourceFeedSaved = JSON.parse(route.request().postData());
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({
+        project: sourceFeedSaved.project, configured: true, hostname: 'profitbase.example', updatedAt: '2026-10-12T12:00:00Z'
+      }) });
+    }
     if (url.pathname === '/settings' && route.request().method() === 'POST') {
       submitted = JSON.parse(route.request().postData());
       return route.fulfill({ status: 202, contentType: 'application/json', headers: cors, body: JSON.stringify({ request: 77, status: 'queued' }) });
@@ -126,13 +160,14 @@ const contentTypes = {
   const switchedProjects = [];
   for (const project of availableProjects) {
     await page.locator('#project-select').selectOption(project.slug);
+    const expectedName = project.name.replace(/\s+·\s+настройка$/, '');
     try {
       await page.waitForFunction(({ slug, name }) => {
         const select = document.querySelector('#project-select');
         const heading = document.querySelector('#project-name');
         const normalizedHeading = heading?.textContent.replace(/\s+/g, ' ').trim().toUpperCase();
         return select?.value === slug && normalizedHeading === name.replace(/\s+/g, ' ').trim().toUpperCase();
-      }, project, { timeout: 10000 });
+      }, { slug: project.slug, name: expectedName }, { timeout: 10000 });
     } catch (error) {
       throw new Error('Project switch failed: ' + JSON.stringify({
         requested: project,
@@ -149,6 +184,14 @@ const contentTypes = {
     document.querySelector('#project-name')?.textContent.replace(/\s+/g, ' ').trim().toUpperCase() === 'ЖК НОВЫЙ ГОРИЗОНТ');
   const projectSwitchingWorks = switchedProjects.length === availableProjects.length && availableProjects.length >= 4;
   const publicFeedHref = await page.locator('#full-feed-link').getAttribute('href');
+  await page.locator('#source-feed-url').fill('https://profitbase.example/private-feed?token=qa-secret');
+  await page.locator('#save-source-feed').click();
+  await page.waitForFunction(() => document.querySelector('#source-feed-badge')?.textContent === 'Подключён');
+  const sourceFeedSettingWorks = sourceFeedSaved?.project === 'novyy-gorizont' &&
+    sourceFeedSaved?.url === 'https://profitbase.example/private-feed?token=qa-secret' &&
+    (await page.locator('#source-feed-url').inputValue()) === '' &&
+    (await page.locator('#source-feed-detail').innerText()).includes('profitbase.example') &&
+    !(await page.locator('#source-feed-detail').innerText()).includes('qa-secret');
   const initialCards = await page.locator('.asset-card').count();
   const activeBefore = await page.locator('.asset-status.active').count();
   if (!(await page.locator('[data-material-file="uploads/mat-qa-library.webp"]').count())) {
@@ -367,7 +410,7 @@ const contentTypes = {
   await page.waitForFunction(() => window.localStorage.getItem('feed-studio-publish-v1-novyy-gorizont'));
 
   const result = {
-    ok: errors.length === 0 && redundantDraftCleared && emptyPublishDisabled && !emptyDraftStatus.includes('не применён') && projectSwitchingWorks && staleManualDateHidden && sourceStateText.includes('Источник проверен') && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 3 && activeBefore === 2 && selectedLibrary.some((text) => text.includes('Ключевой рендер')) && cardsAfterUpload === initialCards + 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 1 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.toLowerCase().includes('после публикации') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.color === '#123ABC' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && imagePlanOptions > 1 && /^plan-[0-9a-f]{12}$/.test(selectedImagePlan) && selectedImagePlanCount > 0 && imagePlanRuleCreated && individualParameterOptions === 9 && bulkParameterOptions === 10 && bulkDescriptionShortcodeExcluded && bulkDescriptionStartsEmpty && bulkDescriptionExpandVisible && bulkDescriptionModalVisible && bulkDescriptionModalSize.width > 700 && bulkDescriptionModalSize.height >= 320 && bulkDescriptionModalShortcodeInserted && bulkDescriptionContentPreserved && bulkDescriptionEscapeCloses && descriptionEditorVisible && descriptionShortcodes >= 5 && descriptionShortcodeExcluded && addressShownFully && descriptionPreviewVisible && descriptionBlocksNormalized && descriptionFormattingPreserved && descriptionTemplateKept && descriptionResolved && roomsParameterAvailable && roomsStartsFromSource && roomsShortcodeUsesOverride && planOptions > 1 && parameterToolbarLayout.planWidth <= 270 && parameterToolbarLayout.singleRow && /^plan-[0-9a-f]{12}$/.test(selectedPlan) && selectedPlanCount > 0 && parameterIndividualBefore === 1 && parameterIndividualLabels.includes('Описание') && parameterIndividualLabels.includes('Количество комнат') && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && excludedCardMarked === 1 && submitted && submitted.version === 3 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor),
+    ok: errors.length === 0 && redundantDraftCleared && emptyPublishDisabled && !emptyDraftStatus.includes('не применён') && projectSwitchingWorks && sourceFeedSettingWorks && staleManualDateHidden && sourceStateText.includes('Источник проверен') && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 3 && activeBefore === 2 && selectedLibrary.some((text) => text.includes('Ключевой рендер')) && cardsAfterUpload === initialCards + 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 1 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.toLowerCase().includes('после публикации') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.color === '#123ABC' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && imagePlanOptions > 1 && /^plan-[0-9a-f]{12}$/.test(selectedImagePlan) && selectedImagePlanCount > 0 && imagePlanRuleCreated && individualParameterOptions === 9 && bulkParameterOptions === 10 && bulkDescriptionShortcodeExcluded && bulkDescriptionStartsEmpty && bulkDescriptionExpandVisible && bulkDescriptionModalVisible && bulkDescriptionModalSize.width > 700 && bulkDescriptionModalSize.height >= 320 && bulkDescriptionModalShortcodeInserted && bulkDescriptionContentPreserved && bulkDescriptionEscapeCloses && descriptionEditorVisible && descriptionShortcodes >= 5 && descriptionShortcodeExcluded && addressShownFully && descriptionPreviewVisible && descriptionBlocksNormalized && descriptionFormattingPreserved && descriptionTemplateKept && descriptionResolved && roomsParameterAvailable && roomsStartsFromSource && roomsShortcodeUsesOverride && planOptions > 1 && parameterToolbarLayout.planWidth <= 270 && parameterToolbarLayout.singleRow && /^plan-[0-9a-f]{12}$/.test(selectedPlan) && selectedPlanCount > 0 && parameterIndividualBefore === 1 && parameterIndividualLabels.includes('Описание') && parameterIndividualLabels.includes('Количество комнат') && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && excludedCardMarked === 1 && submitted && submitted.version === 3 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor),
     errors,
     empty_draft: {
       cleared: redundantDraftCleared,
@@ -385,6 +428,7 @@ const contentTypes = {
       stale_manual_date_hidden: staleManualDateHidden
     },
     public_feed_href: publicFeedHref,
+    source_feed_setting_works: sourceFeedSettingWorks,
     initial_cards: initialCards,
     active_before: activeBefore,
     cards_after_upload: cardsAfterUpload,
