@@ -1705,6 +1705,7 @@
   function bindRichTextEditor(root, item, onChange) {
     var editor = $('[data-rich-editor]', root);
     if (!editor) return;
+    var scope = editor.closest('.richtext-box') || root;
     var savedRange = null;
     function rememberSelection() {
       var selection = window.getSelection();
@@ -1713,8 +1714,8 @@
     function update(emitChange) {
       var clean = sanitizeDescriptionHtml(editor.innerHTML);
       var resolved = resolveDescription(clean, item);
-      var preview = $('[data-description-preview]', root);
-      var counter = $('[data-description-counter]', root);
+      var preview = $('[data-description-preview]', scope);
+      var counter = $('[data-description-counter]', scope);
       if (preview) preview.innerHTML = resolved;
       if (counter) counter.textContent = resolved.replace(/<[^>]*>/g, '').length + ' / 7500 символов';
       if (emitChange && onChange) onChange(clean);
@@ -1726,7 +1727,7 @@
       var pasted = event.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
       document.execCommand('insertHTML', false, esc(pasted).replace(/\n/g, '<br>'));
     });
-    $$('[data-rich-command]', root).forEach(function (button) {
+    $$('[data-rich-command]', scope).forEach(function (button) {
       button.addEventListener('mousedown', function (event) { event.preventDefault(); });
       button.addEventListener('click', function () {
         editor.focus();
@@ -1735,16 +1736,16 @@
         rememberSelection(); update(true);
       });
     });
-    var insert = $('[data-insert-shortcode]', root);
+    var insert = $('[data-insert-shortcode]', scope);
     if (insert) insert.addEventListener('click', function () {
-      var select = $('[data-description-shortcode]', root);
+      var select = $('[data-description-shortcode]', scope);
       if (!select || !select.value) return;
       editor.focus();
       if (savedRange) { var selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(savedRange); }
       document.execCommand('insertText', false, '{{' + select.value + '}}');
       rememberSelection(); update(true);
     });
-    var expand = $('[data-expand-description]', root);
+    var expand = $('[data-expand-description]', scope);
     if (expand) expand.addEventListener('click', function () { openExpandedDescriptionEditor(expand.closest('.richtext-box')); });
     update(false);
   }
