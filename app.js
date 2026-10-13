@@ -20,6 +20,8 @@
     publishedParameterSettings: { lot_values: {}, bulk_rules: [] },
     materialSettings: { logo: '', key_render: '', primary_color: '', palette: [] },
     publishedMaterialSettings: { logo: '', key_render: '', primary_color: '', palette: [] },
+    cardSettings: { show_house_badge: true, show_decoration: true },
+    publishedCardSettings: { show_house_badge: true, show_decoration: true },
     excludedLotIds: [],
     publishedExcludedLotIds: [],
     changeReviewItems: [],
@@ -176,6 +178,7 @@
   var emptyImageSettings = function () { return { lot_overrides: {}, bulk_rules: [] }; };
   var emptyParameterSettings = function () { return { lot_values: {}, bulk_rules: [] }; };
   var emptyMaterialSettings = function () { return { logo: '', key_render: '', primary_color: '', palette: [] }; };
+  var emptyCardSettings = function () { return { show_house_badge: true, show_decoration: true }; };
 
   function projectIsReady(project) {
     return Boolean(project && project.available);
@@ -271,6 +274,14 @@
       key_render: String(source.key_render || current.key_render || (legacyRender && legacyRender.filename) || ''),
       primary_color: primary,
       palette: palette
+    };
+  }
+
+  function normalizeCardSettings(value) {
+    var source = value && typeof value === 'object' ? value : {};
+    return {
+      show_house_badge: source.show_house_badge !== false,
+      show_decoration: source.show_decoration !== false
     };
   }
 
@@ -429,6 +440,7 @@
       image_settings: state.imageSettings,
       parameter_settings: state.parameterSettings,
       material_settings: state.materialSettings,
+      card_settings: state.cardSettings,
       excluded_lot_ids: state.excludedLotIds,
       pending_upload_deletions: state.pendingUploadDeletions
     }));
@@ -527,6 +539,12 @@
       if (!sameValue(state.materialSettings.palette, state.publishedMaterialSettings.palette)) materialParts.push('палитра');
       add('materials', 'project', 'Материалы', 'Фирменные материалы проекта', 'Изменено: ' + materialParts.join(', ') + '.');
     }
+    if (!sameValue(state.cardSettings, state.publishedCardSettings)) {
+      var cardParts = [];
+      if (state.cardSettings.show_house_badge !== state.publishedCardSettings.show_house_badge) cardParts.push('плашка дома');
+      if (state.cardSettings.show_decoration !== state.publishedCardSettings.show_decoration) cardParts.push('тип отделки');
+      add('card-settings', 'project', 'Макет карточки', 'Элементы брендированной карточки', 'Изменено: ' + cardParts.join(', ') + '.');
+    }
 
     var currentExcluded = new Set(state.excludedLotIds.map(String));
     var publishedExcluded = new Set(state.publishedExcludedLotIds.map(String));
@@ -616,6 +634,7 @@
     } else if (change.kind === 'parameter-bulk') restoreArrayEntry(state.parameterSettings.bulk_rules, state.publishedParameterSettings.bulk_rules, change.key);
     else if (change.kind === 'parameter-bulk-order') state.parameterSettings.bulk_rules = restoreCommonOrder(state.parameterSettings.bulk_rules, state.publishedParameterSettings.bulk_rules);
     else if (change.kind === 'materials') state.materialSettings = clone(state.publishedMaterialSettings);
+    else if (change.kind === 'card-settings') state.cardSettings = clone(state.publishedCardSettings);
     else if (change.kind === 'excluded-lot') {
       var shouldBeExcluded = state.publishedExcludedLotIds.indexOf(change.key) >= 0;
       state.excludedLotIds = state.excludedLotIds.filter(function (id) { return String(id) !== change.key; });
@@ -657,6 +676,7 @@
     state.imageSettings = clone(state.publishedImageSettings);
     state.parameterSettings = clone(state.publishedParameterSettings);
     state.materialSettings = clone(state.publishedMaterialSettings);
+    state.cardSettings = clone(state.publishedCardSettings);
     state.excludedLotIds = clone(state.publishedExcludedLotIds);
     state.pendingUploadDeletions = [];
     localStorage.removeItem(draftKey());
@@ -850,6 +870,8 @@
         renderAssets();
       });
     });
+    $('#show-house-badge').checked = state.cardSettings.show_house_badge;
+    $('#show-decoration').checked = state.cardSettings.show_decoration;
     renderMaterialUploadState();
   }
 
@@ -2308,18 +2330,21 @@
 
   var materialPreviewToken = 0;
 
-  function materialPreviewSnapshot(settings) {
+  function materialPreviewSnapshot(settings, cardSettings) {
     var source = settings || emptyMaterialSettings();
+    var cardSource = normalizeCardSettings(cardSettings);
     return {
       logo: String(source.logo || ''),
       key_render: String(source.key_render || ''),
-      primary_color: normalizeHexColor(source.primary_color)
+      primary_color: normalizeHexColor(source.primary_color),
+      show_house_badge: cardSource.show_house_badge,
+      show_decoration: cardSource.show_decoration
     };
   }
 
   function hasPendingMaterialPreview() {
-    return JSON.stringify(materialPreviewSnapshot(state.materialSettings)) !==
-      JSON.stringify(materialPreviewSnapshot(state.publishedMaterialSettings));
+    return JSON.stringify(materialPreviewSnapshot(state.materialSettings, state.cardSettings)) !==
+      JSON.stringify(materialPreviewSnapshot(state.publishedMaterialSettings, state.publishedCardSettings));
   }
 
   function materialAsset(filename) {
@@ -2399,11 +2424,15 @@
     context.strokeRect(56, 235, 470, 405);
     drawCovered(context, loaded[1], 64, 243, 454, 389);
 
-    context.fillStyle = 'rgba(255,255,255,.08)';
-    context.fillRect(56, 180, 145, 42);
-    canvasText(context, String(item.house || '').toUpperCase(), 74, 208, '700 19px Manrope, Arial', '#FFFFFF');
+    if (state.cardSettings.show_house_badge) {
+      context.fillStyle = 'rgba(255,255,255,.08)';
+      context.fillRect(56, 180, 145, 42);
+      canvasText(context, String(item.house || '').toUpperCase(), 74, 208, '700 19px Manrope, Arial', '#FFFFFF');
+    }
     canvasText(context, String(item.rooms || '') + '-КОМНАТНАЯ КВАРТИРА', 56, 696, '800 28px Manrope, Arial', '#FFFFFF');
-    canvasText(context, item.decoration || 'Без отделки', 56, 732, '500 18px Manrope, Arial', 'rgba(255,255,255,.78)');
+    if (state.cardSettings.show_decoration) {
+      canvasText(context, item.decoration || 'Без отделки', 56, 732, '500 18px Manrope, Arial', 'rgba(255,255,255,.78)');
+    }
     context.fillStyle = accent;
     context.fillRect(56, 754, 405, 92);
     canvasText(context, formatPrice(item.price), 258, 814, '800 36px Manrope, Arial', dark, 'center');
@@ -2447,6 +2476,8 @@
     canvas.dataset.logo = state.materialSettings.logo;
     canvas.dataset.render = state.materialSettings.key_render;
     canvas.dataset.color = normalizeHexColor(state.materialSettings.primary_color);
+    canvas.dataset.houseBadge = String(state.cardSettings.show_house_badge);
+    canvas.dataset.decoration = String(state.cardSettings.show_decoration);
     drawMaterialPreview(canvas, item, token);
   }
 
@@ -2472,6 +2503,7 @@
       image_settings: clone(state.imageSettings),
       parameter_settings: clone(state.parameterSettings),
       material_settings: clone(state.materialSettings),
+      card_settings: clone(state.cardSettings),
       excluded_lot_ids: clone(state.excludedLotIds),
       pending_upload_deletions: clone(state.pendingUploadDeletions)
     };
@@ -2617,7 +2649,8 @@
       Object.keys(state.parameterSettings.lot_values).length + ' квартир с дополнительными параметрами и ' + state.parameterSettings.bulk_rules.length + ' массовых правил параметров.<br>' +
       '<strong>' + state.excludedLotIds.length + ' лотов исключено из результирующего XML.</strong><br>' +
       'Логотип: <strong>' + esc(state.materialSettings.logo) + '</strong><br>Ключевой рендер: <strong>' + esc(state.materialSettings.key_render) + '</strong>.<br>' +
-      'Основной цвет: <strong>' + esc(state.materialSettings.primary_color) + '</strong> · ' + state.materialSettings.palette.length + ' цветов в палитре.' +
+      'Основной цвет: <strong>' + esc(state.materialSettings.primary_color) + '</strong> · ' + state.materialSettings.palette.length + ' цветов в палитре.<br>' +
+      'Плашка дома: <strong>' + (state.cardSettings.show_house_badge ? 'показывается' : 'скрыта') + '</strong>; тип отделки: <strong>' + (state.cardSettings.show_decoration ? 'показывается' : 'скрыт') + '</strong>.' +
       (state.pendingUploadDeletions.length ? '<br><strong>' + state.pendingUploadDeletions.length + ' загруженных файлов будут физически удалены после публикации.</strong>' : '');
     $('#publish-modal').classList.remove('hidden');
   }
@@ -2881,6 +2914,16 @@
       showToast('Параметр назначен для ' + items.length + ' квартир');
     });
     $('#preview-lot').addEventListener('change', function (event) { state.previewId = event.target.value; renderPreview(); });
+    $('#show-house-badge').addEventListener('change', function (event) {
+      state.cardSettings.show_house_badge = event.target.checked;
+      setDirty(true);
+      renderPreview();
+    });
+    $('#show-decoration').addEventListener('change', function (event) {
+      state.cardSettings.show_decoration = event.target.checked;
+      setDirty(true);
+      renderPreview();
+    });
     $('#add-rule').addEventListener('click', function () {
       if (state.rules.length >= 10) { showToast('Можно создать не более 10 правил.'); return; }
       var rule = emptyRule();
@@ -2975,6 +3018,7 @@
       state.publishedRules = clone(publishedRules);
       state.publishedImageSettings = normalizeImageSettings(data[1].image_settings || emptyImageSettings());
       state.publishedParameterSettings = normalizeParameterSettings(data[1].parameter_settings || emptyParameterSettings());
+      state.publishedCardSettings = normalizeCardSettings(data[1].card_settings || emptyCardSettings());
       var draft = null;
       try { draft = JSON.parse(localStorage.getItem(draftKey()) || 'null'); } catch (error) { draft = null; }
       state.rules = draft && Array.isArray(draft.rules) ? draft.rules.map(normalizeRule) : publishedRules;
@@ -2982,6 +3026,7 @@
       state.parameterSettings = normalizeParameterSettings(draft && draft.parameter_settings != null ? draft.parameter_settings : data[1].parameter_settings || emptyParameterSettings());
       state.publishedMaterialSettings = normalizeMaterialSettings(data[1].material_settings || emptyMaterialSettings(), state.assets);
       state.materialSettings = normalizeMaterialSettings(draft && draft.material_settings != null ? draft.material_settings : state.publishedMaterialSettings, state.assets);
+      state.cardSettings = normalizeCardSettings(draft && draft.card_settings != null ? draft.card_settings : state.publishedCardSettings);
       var availableLotIds = new Set(state.inventory.items.map(function (item) { return String(item.id); }));
       state.publishedExcludedLotIds = Array.from(new Set((data[1].excluded_lot_ids || []).map(String)))
         .filter(function (id) { return availableLotIds.has(id); });
@@ -3060,6 +3105,8 @@
       state.parameterSettings = clone(state.publishedParameterSettings);
       state.publishedMaterialSettings = normalizeMaterialSettings(settings.material_settings || emptyMaterialSettings(), state.assets);
       state.materialSettings = clone(state.publishedMaterialSettings);
+      state.publishedCardSettings = normalizeCardSettings(settings.card_settings || emptyCardSettings());
+      state.cardSettings = clone(state.publishedCardSettings);
       state.publishedExcludedLotIds = [];
       state.excludedLotIds = [];
       state.pendingUploadDeletions = [];
