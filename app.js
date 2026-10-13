@@ -181,6 +181,16 @@
     return Boolean(project && project.available);
   }
 
+  function renderProjectOptions() {
+    var select = $('#project-select');
+    if (!select || !state.registry) return;
+    select.innerHTML = state.registry.projects.map(function (project) {
+      return '<option value="' + esc(project.slug) + '">' +
+        esc(project.name) + (projectIsReady(project) ? '' : ' · настройка') + '</option>';
+    }).join('');
+    if (state.project) select.value = state.project.slug;
+  }
+
   function itemMatchesFilters(item, filters) {
     var search = String(filters.search || '').trim().toLowerCase();
     return (!filters.house || item.house_id === filters.house) &&
@@ -924,6 +934,7 @@
       showToast('Выйдите и войдите в Feed Studio повторно.');
       return;
     }
+    var startInitialRefresh = false;
     state.sourceFeedBusy = true;
     renderSourceFeedSettings();
     try {
@@ -936,7 +947,10 @@
       if (!response.ok) throw new Error(payload.error || 'Не удалось сохранить адрес.');
       state.sourceFeedStatus = payload;
       input.value = '';
-      showToast('Закрытый адрес сохранён. Для действующего объекта нажмите «Обновить Profitbase».');
+      startInitialRefresh = state.setupMode;
+      showToast(startInitialRefresh
+        ? 'Источник подключён. Начинаем первичную загрузку квартир Profitbase.'
+        : 'Закрытый адрес сохранён. Нажмите «Обновить Profitbase», чтобы получить актуальные данные.');
     } catch (error) {
       state.sourceFeedStatus = { error: error.message || 'Не удалось сохранить адрес.' };
       showToast(state.sourceFeedStatus.error);
@@ -944,6 +958,7 @@
       state.sourceFeedBusy = false;
       renderSourceFeedSettings();
     }
+    if (startInitialRefresh) await requestFeedRefresh();
   }
 
   function addBrandColor() {
@@ -1169,7 +1184,8 @@
       sourceState.title = 'Дата последнего получения фида Profitbase — автоматического или ручного.';
     }
     button.className = 'button button-secondary feed-refresh-button';
-    button.disabled = state.setupMode || state.feedRefreshBusy || ['queued', 'building', 'deploying'].indexOf(status) >= 0 || !state.project || !uploadServiceUrl();
+    var setupSourceMissing = state.setupMode && !(state.sourceFeedStatus && state.sourceFeedStatus.configured);
+    button.disabled = setupSourceMissing || state.feedRefreshBusy || ['queued', 'building', 'deploying'].indexOf(status) >= 0 || !state.project || !uploadServiceUrl();
     if (status === 'queued') {
       button.textContent = 'Обновление в очереди…';
       button.classList.add('processing');
@@ -1197,7 +1213,9 @@
       return;
     }
     button.textContent = 'Обновить Profitbase';
-    button.title = 'Получить актуальный фид выбранного объекта из Profitbase';
+    button.title = setupSourceMissing
+      ? 'Сначала сохраните адрес родительского фида в разделе «Материалы»'
+      : 'Получить актуальный фид выбранного объекта из Profitbase';
   }
 
   async function pollFeedRefreshStatus() {
@@ -2476,6 +2494,7 @@
     if (!slug) return;
     try {
       state.registry = await loadRegistry();
+      renderProjectOptions();
       await loadProject(slug, true);
     } catch (error) {
       showToast('Фид опубликован. Обновите страницу, чтобы загрузить новые данные.');
@@ -3069,11 +3088,7 @@
   async function init() {
     try {
       state.registry = await loadRegistry();
-      $('#project-select').innerHTML = state.registry.projects.map(function (project) {
-        var ready = projectIsReady(project);
-        return '<option value="' + esc(project.slug) + '">' +
-          esc(project.name) + (ready ? '' : ' · настройка') + '</option>';
-      }).join('');
+      renderProjectOptions();
       bindStaticEvents();
       var requestedView = window.location.hash.replace('#', '');
       state.activeView = ['dashboard', 'lots', 'images', 'parameters', 'promotions', 'assets', 'preview'].indexOf(requestedView) >= 0 ? requestedView : 'dashboard';
