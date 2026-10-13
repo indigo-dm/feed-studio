@@ -52,8 +52,10 @@
     feedRefreshPollTimer: null,
     feedRefreshBusy: false,
     draftSaved: false,
-    dirty: false
+    dirty: false,
+    projectLoadToken: 0
   };
+  var projectDataCache = new Map();
 
   var $ = function (selector, root) { return (root || document).querySelector(selector); };
   var $$ = function (selector, root) { return Array.from((root || document).querySelectorAll(selector)); };
@@ -98,14 +100,14 @@
       encodeURIComponent(name) + '=' + encodeURIComponent(value);
   };
 
-  async function requestJsonTarget(url) {
+  async function requestJsonTarget(url, cacheMode) {
     var target = absoluteUrl(url);
     var lastError = null;
     for (var attempt = 0; attempt < 2; attempt += 1) {
       var requestUrl = attempt ? appendQuery(target, '_retry', Date.now()) : target;
       try {
         var response = await fetch(requestUrl, {
-          cache: 'no-store',
+          cache: cacheMode || 'no-store',
           credentials: 'omit',
           redirect: 'follow'
         });
@@ -125,13 +127,13 @@
     throw lastError || new Error('неизвестная ошибка');
   }
 
-  async function requestJson(url, label, backupUrl) {
+  async function requestJson(url, label, backupUrl, cacheMode) {
     try {
-      return await requestJsonTarget(url);
+      return await requestJsonTarget(url, cacheMode);
     } catch (primaryError) {
       if (backupUrl) {
         try {
-          return await requestJsonTarget(backupUrl);
+          return await requestJsonTarget(backupUrl, cacheMode);
         } catch (backupError) {
           throw new Error('Не удалось загрузить ' + label + ': ' + primaryError.message +
             '. Резервный источник: ' + backupError.message);
@@ -192,6 +194,21 @@
         esc(project.name) + (projectIsReady(project) ? '' : ' · настройка') + '</option>';
     }).join('');
     if (state.project) select.value = state.project.slug;
+  }
+
+  function setProjectLoading(loading, projectName) {
+    var overlay = $('#project-loading');
+    var workspace = $('.workspace');
+    var select = $('#project-select');
+    var addButton = $('#add-project');
+    if (overlay) {
+      overlay.classList.toggle('hidden', !loading);
+      var title = $('#project-loading-title');
+      if (title) title.textContent = loading && projectName ? 'Загружаем ' + projectName : 'Загружаем данные объекта';
+    }
+    if (workspace) workspace.setAttribute('aria-busy', loading ? 'true' : 'false');
+    if (select) select.disabled = loading;
+    if (addButton) addButton.disabled = loading;
   }
 
   function itemMatchesFilters(item, filters) {
@@ -922,21 +939,25 @@
     detail.textContent = 'Статус источника загружается…';
   }
 
-  async function loadSourceFeedStatus() {
+  async function loadSourceFeedStatus(expectedSlug) {
+    var slug = String(expectedSlug || (state.project && state.project.slug) || '');
+    if (!slug || !state.project || state.project.slug !== slug) return;
     state.sourceFeedStatus = null;
     renderSourceFeedSettings();
     if (!state.project || !uploadServiceUrl()) return;
     var credential = window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.get ? window.FEED_STUDIO_CREDENTIAL.get() : '';
     if (!credential) return;
     try {
-      var response = await fetch(serviceEndpoint('/source-feed?project=' + encodeURIComponent(state.project.slug)), {
+      var response = await fetch(serviceEndpoint('/source-feed?project=' + encodeURIComponent(slug)), {
         headers: { Authorization: 'Bearer ' + credential },
         cache: 'no-store'
       });
       var payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Не удалось проверить источник.');
+      if (!state.project || state.project.slug !== slug) return;
       state.sourceFeedStatus = payload;
     } catch (error) {
+      if (!state.project || state.project.slug !== slug) return;
       state.sourceFeedStatus = { error: error.message || 'Не удалось проверить источник.' };
     }
     renderSourceFeedSettings();
@@ -1333,17 +1354,19 @@
     });
   }
 
-  async function loadMaterialLibrary() {
-    if (!state.project || !uploadServiceUrl()) return;
+  async function loadMaterialLibrary(expectedSlug) {
+    var slug = String(expectedSlug || (state.project && state.project.slug) || '');
+    if (!slug || !state.project || state.project.slug !== slug || !uploadServiceUrl()) return;
     var credential = window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.get ? window.FEED_STUDIO_CREDENTIAL.get() : '';
     if (!credential) return;
     try {
-      var response = await fetch(serviceEndpoint('/materials?project=' + encodeURIComponent(state.project.slug)), {
+      var response = await fetch(serviceEndpoint('/materials?project=' + encodeURIComponent(slug)), {
         headers: { Authorization: 'Bearer ' + credential },
         cache: 'no-store'
       });
       if (!response.ok) return;
       var payload = await response.json();
+      if (!state.project || state.project.slug !== slug) return;
       mergeMaterialItems(payload.items || []);
     } catch (error) {
       return;
@@ -2525,6 +2548,7 @@
     var slug = state.project && state.project.slug;
     if (!slug) return;
     try {
+      projectDataCache.clear();
       state.registry = await loadRegistry();
       renderProjectOptions();
       await loadProject(slug, true);
@@ -2990,25 +3014,49 @@
     });
   }
 
+  function projectCacheKey(project) {
+    return cacheVersion() + ':' + project.slug;
+  }
+
+  async function loadProjectFiles(project) {
+    var key = projectCacheKey(project);
+    if (projectDataCache.has(key)) return clone(projectDataCache.get(key));
+    var base = dataUrl(project.base);
+    var version = '?v=' + encodeURIComponent(cacheVersion());
+    var backupBase = RAW_DATA_ROOT + '/projects/' + encodeURIComponent(project.slug);
+    var data = await Promise.all([
+      requestJson(base + '/inventory.json' + version, 'inventory.json', backupBase + '/inventory.json' + version, 'force-cache'),
+      requestJson(base + '/settings.json' + version, 'settings.json', backupBase + '/settings.json' + version, 'force-cache'),
+      requestJson(base + '/status.json' + version, 'status.json', backupBase + '/status.json' + version, 'force-cache'),
+      requestJson(base + '/assets.json' + version, 'assets.json', backupBase + '/assets.json' + version, 'force-cache')
+    ]);
+    projectDataCache.set(key, clone(data));
+    return data;
+  }
+
+  function loadProjectServices(slug, loadToken) {
+    Promise.all([loadMaterialLibrary(slug), loadSourceFeedStatus(slug)]).then(function () {
+      if (loadToken !== state.projectLoadToken || !state.project || state.project.slug !== slug) return;
+      renderAssets();
+      renderFeedRefreshState();
+    });
+  }
+
   async function loadProject(slug, preservePublication) {
     stopPublishPolling();
     stopFeedRefreshPolling();
     var project = state.registry.projects.find(function (item) { return item.slug === slug; });
     if (!project) return;
+    var loadToken = ++state.projectLoadToken;
+    setProjectLoading(true, project.name);
     if (!projectIsReady(project)) {
-      await loadSetupProject(project);
+      await loadSetupProject(project, loadToken);
+      if (loadToken === state.projectLoadToken) setProjectLoading(false);
       return;
     }
-    var base = dataUrl(project.base);
-    var version = '?v=' + encodeURIComponent(cacheVersion());
     try {
-      var backupBase = RAW_DATA_ROOT + '/projects/' + encodeURIComponent(project.slug);
-      var data = await Promise.all([
-        requestJson(base + '/inventory.json' + version, 'inventory.json', backupBase + '/inventory.json' + version),
-        requestJson(base + '/settings.json' + version, 'settings.json', backupBase + '/settings.json' + version),
-        requestJson(base + '/status.json' + version, 'status.json', backupBase + '/status.json' + version),
-        requestJson(base + '/assets.json' + version, 'assets.json', backupBase + '/assets.json' + version)
-      ]);
+      var data = await loadProjectFiles(project);
+      if (loadToken !== state.projectLoadToken) return;
       state.project = project;
       state.setupMode = false;
       state.inventory = data[0];
@@ -3054,20 +3102,23 @@
       state.filters = { house: '', rooms: '', floor: '', search: '' };
       state.imageFilters = { house: '', rooms: '', floor: '', plan: '', search: '' };
       state.parameterFilters = { house: '', rooms: '', floor: '', plan: '', search: '' };
-      await loadMaterialLibrary();
-      await loadSourceFeedStatus();
       populateFilters();
       renderAll();
       navigate(state.activeView);
       setDirty(false);
+      setProjectLoading(false);
+      loadProjectServices(project.slug, loadToken);
       pollPublishStatus();
       pollFeedRefreshStatus();
     } catch (error) {
+      if (loadToken !== state.projectLoadToken) return;
       document.querySelector('main').innerHTML = '<section class="panel empty-state"><div><h2>Кабинет временно недоступен</h2><p>' + esc(error.message) + '</p></div></section>';
+    } finally {
+      if (loadToken === state.projectLoadToken) setProjectLoading(false);
     }
   }
 
-  async function loadSetupProject(project) {
+  async function loadSetupProject(project, loadToken) {
     var credential = window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.get ? window.FEED_STUDIO_CREDENTIAL.get() : '';
     if (!credential || !SERVICE_ROOT) {
       showToast('Для настройки нового объекта войдите в Feed Studio повторно.');
@@ -3081,6 +3132,7 @@
       });
       var payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Не удалось загрузить настройки объекта.');
+      if (loadToken !== state.projectLoadToken) return;
       var settings = payload.settings || {};
       state.project = project;
       state.setupMode = true;
@@ -3120,13 +3172,14 @@
       state.filters = { house: '', rooms: '', floor: '', search: '' };
       state.imageFilters = { house: '', rooms: '', floor: '', plan: '', search: '' };
       state.parameterFilters = { house: '', rooms: '', floor: '', plan: '', search: '' };
-      await loadMaterialLibrary();
-      await loadSourceFeedStatus();
       populateFilters();
       renderAll();
       navigate('assets');
+      setProjectLoading(false);
+      loadProjectServices(project.slug, loadToken);
       showToast('Объект открыт в режиме первоначальной настройки.');
     } catch (error) {
+      if (loadToken !== state.projectLoadToken) return;
       showToast(error.message || 'Не удалось открыть настройки объекта.');
       $('#project-select').value = state.project ? state.project.slug : state.registry.default_project;
     }
