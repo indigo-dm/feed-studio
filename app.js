@@ -18,10 +18,10 @@
     publishedImageSettings: { lot_overrides: {}, bulk_rules: [] },
     parameterSettings: { lot_values: {}, bulk_rules: [] },
     publishedParameterSettings: { lot_values: {}, bulk_rules: [] },
-    materialSettings: { logo: '', key_render: '', primary_color: '', palette: [] },
-    publishedMaterialSettings: { logo: '', key_render: '', primary_color: '', palette: [] },
-    cardSettings: { show_house_badge: true, show_decoration: true },
-    publishedCardSettings: { show_house_badge: true, show_decoration: true },
+    materialSettings: { logo: '', key_render: '', background_render: '', primary_color: '', background_color: '', text_color: '', subtitle_color: '', palette: [] },
+    publishedMaterialSettings: { logo: '', key_render: '', background_render: '', primary_color: '', background_color: '', text_color: '', subtitle_color: '', palette: [] },
+    cardSettings: { show_key_render: true, show_house_badge: true, show_decoration: true },
+    publishedCardSettings: { show_key_render: true, show_house_badge: true, show_decoration: true },
     excludedLotIds: [],
     publishedExcludedLotIds: [],
     changeReviewItems: [],
@@ -33,6 +33,7 @@
     page: 1,
     pageSize: 12,
     previewId: null,
+    materialPreviewId: null,
     imageLotId: null,
     parameterLotId: null,
     imageUploadBusy: false,
@@ -56,6 +57,7 @@
     projectLoadToken: 0
   };
   var projectDataCache = new Map();
+  var LAST_PROJECT_KEY = 'feed-studio-last-project-v1';
 
   var $ = function (selector, root) { return (root || document).querySelector(selector); };
   var $$ = function (selector, root) { return Array.from((root || document).querySelectorAll(selector)); };
@@ -179,11 +181,23 @@
   var expandedDescriptionEditor = null;
   var emptyImageSettings = function () { return { lot_overrides: {}, bulk_rules: [] }; };
   var emptyParameterSettings = function () { return { lot_values: {}, bulk_rules: [] }; };
-  var emptyMaterialSettings = function () { return { logo: '', key_render: '', primary_color: '', palette: [] }; };
-  var emptyCardSettings = function () { return { show_house_badge: true, show_decoration: true }; };
+  var emptyMaterialSettings = function () {
+    return { logo: '', key_render: '', background_render: '', primary_color: '', background_color: '', text_color: '', subtitle_color: '', palette: [] };
+  };
+  var emptyCardSettings = function () { return { show_key_render: true, show_house_badge: true, show_decoration: true }; };
 
   function projectIsReady(project) {
     return Boolean(project && project.available);
+  }
+
+  function preferredProjectSlug() {
+    var saved = '';
+    try { saved = localStorage.getItem(LAST_PROJECT_KEY) || ''; } catch (error) { saved = ''; }
+    return state.registry.projects.some(function (project) { return project.slug === saved; }) ? saved : state.registry.default_project;
+  }
+
+  function rememberProject(slug) {
+    try { localStorage.setItem(LAST_PROJECT_KEY, String(slug || '')); } catch (error) { /* storage can be disabled */ }
   }
 
   function renderProjectOptions() {
@@ -285,11 +299,28 @@
       return { name: String(item.name || ('Цвет ' + (index + 1))).slice(0, 48), value: normalized };
     }).filter(Boolean);
     var primary = normalizeHexColor(source.primary_color) || normalizeHexColor(brand.green) || (palette[0] && palette[0].value) || '#000000';
-    if (!seen.has(primary)) palette.unshift({ name: 'Основной', value: primary });
+    var background = normalizeHexColor(source.background_color) || normalizeHexColor(brand.background_color) || primary;
+    var textColor = normalizeHexColor(source.text_color) || normalizeHexColor(brand.text_color) || normalizeHexColor(brand.white) || '#FFFFFF';
+    var subtitle = normalizeHexColor(source.subtitle_color) || normalizeHexColor(brand.subtitle_color) || normalizeHexColor(brand.gray) || textColor;
+    [
+      { name: 'Основной', value: primary },
+      { name: 'Фон', value: background },
+      { name: 'Текст', value: textColor },
+      { name: 'Подзаголовки', value: subtitle }
+    ].reverse().forEach(function (role) {
+      if (!seen.has(role.value)) {
+        palette.unshift(role);
+        seen.add(role.value);
+      }
+    });
     return {
       logo: String(source.logo || current.logo || (legacyLogo && legacyLogo.filename) || ''),
       key_render: String(source.key_render || current.key_render || (legacyRender && legacyRender.filename) || ''),
+      background_render: String(source.background_render || current.background_render || ''),
       primary_color: primary,
+      background_color: background,
+      text_color: textColor,
+      subtitle_color: subtitle,
       palette: palette
     };
   }
@@ -297,6 +328,7 @@
   function normalizeCardSettings(value) {
     var source = value && typeof value === 'object' ? value : {};
     return {
+      show_key_render: source.show_key_render !== false,
       show_house_badge: source.show_house_badge !== false,
       show_decoration: source.show_decoration !== false
     };
@@ -452,7 +484,7 @@
       return false;
     }
     localStorage.setItem(draftKey(), JSON.stringify({
-      version: 3,
+      version: 4,
       rules: state.rules,
       image_settings: state.imageSettings,
       parameter_settings: state.parameterSettings,
@@ -552,12 +584,17 @@
       var materialParts = [];
       if (state.materialSettings.logo !== state.publishedMaterialSettings.logo) materialParts.push('логотип');
       if (state.materialSettings.key_render !== state.publishedMaterialSettings.key_render) materialParts.push('ключевой рендер');
+      if (state.materialSettings.background_render !== state.publishedMaterialSettings.background_render) materialParts.push('фоновый рендер');
       if (state.materialSettings.primary_color !== state.publishedMaterialSettings.primary_color) materialParts.push('основной цвет');
+      if (state.materialSettings.background_color !== state.publishedMaterialSettings.background_color) materialParts.push('цвет фона');
+      if (state.materialSettings.text_color !== state.publishedMaterialSettings.text_color) materialParts.push('цвет текста');
+      if (state.materialSettings.subtitle_color !== state.publishedMaterialSettings.subtitle_color) materialParts.push('цвет подзаголовков');
       if (!sameValue(state.materialSettings.palette, state.publishedMaterialSettings.palette)) materialParts.push('палитра');
       add('materials', 'project', 'Материалы', 'Фирменные материалы проекта', 'Изменено: ' + materialParts.join(', ') + '.');
     }
     if (!sameValue(state.cardSettings, state.publishedCardSettings)) {
       var cardParts = [];
+      if (state.cardSettings.show_key_render !== state.publishedCardSettings.show_key_render) cardParts.push('рендер в макете');
       if (state.cardSettings.show_house_badge !== state.publishedCardSettings.show_house_badge) cardParts.push('плашка дома');
       if (state.cardSettings.show_decoration !== state.publishedCardSettings.show_decoration) cardParts.push('тип отделки');
       add('card-settings', 'project', 'Макет карточки', 'Элементы брендированной карточки', 'Изменено: ' + cardParts.join(', ') + '.');
@@ -833,11 +870,13 @@
         '<div class="asset-missing">Файл не загружен</div>';
       var roles = [];
       if (state.materialSettings.logo === asset.filename) roles.push('Логотип');
-      if (state.materialSettings.key_render === asset.filename) roles.push('Ключевой рендер');
+      if (state.materialSettings.key_render === asset.filename) roles.push('Рендер в макете');
+      if (state.materialSettings.background_render === asset.filename) roles.push('Фон карточки');
       var status = roles.length ? 'Используется: ' + roles.join(' · ') : (asset.exists ? 'В библиотеке' : 'Файл отсутствует');
       var actionButtons = asset.exists ?
         (state.materialSettings.logo === asset.filename ? '' : '<button class="button button-secondary button-small" data-use-material="logo" data-material-file="' + esc(asset.filename) + '">Сделать логотипом</button>') +
-        (state.materialSettings.key_render === asset.filename ? '' : '<button class="button button-secondary button-small" data-use-material="key_render" data-material-file="' + esc(asset.filename) + '">Сделать рендером</button>') : '';
+        (state.materialSettings.key_render === asset.filename ? '' : '<button class="button button-secondary button-small" data-use-material="key_render" data-material-file="' + esc(asset.filename) + '">Вставить в макет</button>') +
+        (state.materialSettings.background_render === asset.filename ? '' : '<button class="button button-secondary button-small" data-use-material="background_render" data-material-file="' + esc(asset.filename) + '">Сделать фоном</button>') : '';
       var actions = actionButtons ? '<div class="asset-footer"><div class="asset-actions">' + actionButtons + '</div></div>' : '';
       return '<article class="asset-card ' + (roles.length ? 'active' : '') + '"><div class="asset-preview">' + preview + '<div class="asset-copy"><div><strong>' +
         esc(asset.name) + '</strong><span class="asset-status ' + (roles.length ? 'active' : (asset.exists ? 'ready' : '')) + '">' +
@@ -849,28 +888,46 @@
         state.materialSettings[button.dataset.useMaterial] = button.dataset.materialFile;
         setDirty(true);
         renderAssets();
-        showToast(button.dataset.useMaterial === 'logo' ? 'Логотип выбран и уже доступен в предпросмотре' : 'Рендер выбран и уже доступен в предпросмотре');
+        var labels = { logo: 'Логотип', key_render: 'Рендер в макете', background_render: 'Фон карточки' };
+        showToast((labels[button.dataset.useMaterial] || 'Материал') + ' выбран и уже доступен в предпросмотре');
       });
     });
     var palette = state.materialSettings.palette || [];
-    var publishedPrimary = normalizeHexColor(state.assets.brand.green);
-    var selectedPrimary = normalizeHexColor(state.materialSettings.primary_color);
+    var colorRoles = [
+      { key: 'primary_color', label: 'Основной', action: 'Сделать основным' },
+      { key: 'background_color', label: 'Фон', action: 'Сделать фоном' },
+      { key: 'text_color', label: 'Текст', action: 'Назначить тексту' },
+      { key: 'subtitle_color', label: 'Подзаголовки', action: 'Назначить подзаголовкам' }
+    ];
+    $('#color-role-summary').innerHTML = colorRoles.map(function (role) {
+      var value = normalizeHexColor(state.materialSettings[role.key]) || '#000000';
+      return '<div class="color-role"><span class="color-role-dot" style="background:' + esc(value) + '"></span><span><small>' +
+        esc(role.label) + '</small><code>' + esc(value) + '</code></span></div>';
+    }).join('');
     $('#brand-palette').innerHTML = palette.map(function (color) {
       var value = safeColor(color.value);
-      var isPublished = value.toUpperCase() === publishedPrimary;
-      var isSelected = value.toUpperCase() === selectedPrimary;
-      var status = isPublished && isSelected ? 'Используется' : isPublished ? 'Используется сейчас' : isSelected ? 'Выбран после публикации' : '';
-      var actions = '<div class="palette-actions">' +
-        (isSelected ? '' : '<button data-use-brand-color="' + esc(value.toUpperCase()) + '">Сделать основным</button>') +
-        (!isPublished && !isSelected ? '<button class="danger" data-delete-brand-color="' + esc(value.toUpperCase()) + '">Удалить</button>' : '') +
-        '</div>';
-      return '<div class="palette-item ' + (isSelected ? 'selected' : '') + ' ' + (isPublished ? 'published' : '') + '"><span class="palette-swatch" style="background:' +
+      var normalizedValue = value.toUpperCase();
+      var selectedRoles = colorRoles.filter(function (role) { return normalizeHexColor(state.materialSettings[role.key]) === normalizedValue; });
+      var publishedRoles = colorRoles.filter(function (role) { return normalizeHexColor(state.publishedMaterialSettings[role.key]) === normalizedValue; });
+      var roleTags = selectedRoles.length ? '<div class="palette-role-tags">' + selectedRoles.map(function (role) {
+        return '<span>' + esc(role.label) + '</span>';
+      }).join('') + '</div>' : '';
+      var actionButtons = colorRoles.filter(function (role) {
+        return !selectedRoles.some(function (selectedRole) { return selectedRole.key === role.key; });
+      }).map(function (role) {
+        return '<button data-use-color-role="' + esc(role.key) + '" data-use-brand-color="' + esc(normalizedValue) + '">' + esc(role.action) + '</button>';
+      }).join('');
+      var active = selectedRoles.length > 0;
+      var published = publishedRoles.length > 0;
+      var actions = '<div class="palette-actions">' + actionButtons +
+        (!active && !published ? '<button class="danger" data-delete-brand-color="' + esc(normalizedValue) + '">Удалить</button>' : '') + '</div>';
+      return '<div class="palette-item ' + (active ? 'selected' : '') + ' ' + (published ? 'published' : '') + '"><span class="palette-swatch" style="background:' +
         value + '"></span><div class="palette-copy"><strong>' + esc(color.name) + '</strong><code>' + esc(value.toUpperCase()) + '</code>' +
-        (status ? '<span class="palette-status">' + esc(status) + '</span>' : '') + '</div>' + actions + '</div>';
+        roleTags + '</div>' + actions + '</div>';
     }).join('');
     $$('[data-use-brand-color]', $('#brand-palette')).forEach(function (button) {
       button.addEventListener('click', function () {
-        state.materialSettings.primary_color = button.dataset.useBrandColor;
+        state.materialSettings[button.dataset.useColorRole || 'primary_color'] = button.dataset.useBrandColor;
         setDirty(true);
         renderAssets();
         showToast('Цвет виден в предпросмотре сразу, а в фиде применится после публикации.');
@@ -887,9 +944,11 @@
         renderAssets();
       });
     });
+    $('#show-key-render').checked = state.cardSettings.show_key_render;
     $('#show-house-badge').checked = state.cardSettings.show_house_badge;
     $('#show-decoration').checked = state.cardSettings.show_decoration;
     renderMaterialUploadState();
+    renderMaterialWorkspacePreview();
   }
 
   function renderSourceFeedSettings() {
@@ -1442,7 +1501,7 @@
         throw new Error(payload.error || 'Не удалось загрузить материал.');
       }
       mergeMaterialItems([payload]);
-      setMaterialUploadMessage('Материал загружен. Теперь назначьте его логотипом или ключевым рендером.', 'success');
+      setMaterialUploadMessage('Материал загружен. Теперь назначьте его логотипом, рендером в макете или фоном.', 'success');
       renderAssets();
     } catch (error) {
       setMaterialUploadMessage(error.message || 'Не удалось загрузить материал.', 'error');
@@ -2352,6 +2411,7 @@
   }
 
   var materialPreviewToken = 0;
+  var workspaceMaterialPreviewToken = 0;
 
   function materialPreviewSnapshot(settings, cardSettings) {
     var source = settings || emptyMaterialSettings();
@@ -2359,7 +2419,12 @@
     return {
       logo: String(source.logo || ''),
       key_render: String(source.key_render || ''),
+      background_render: String(source.background_render || ''),
       primary_color: normalizeHexColor(source.primary_color),
+      background_color: normalizeHexColor(source.background_color),
+      text_color: normalizeHexColor(source.text_color),
+      subtitle_color: normalizeHexColor(source.subtitle_color),
+      show_key_render: cardSource.show_key_render,
       show_house_badge: cardSource.show_house_badge,
       show_decoration: cardSource.show_decoration
     };
@@ -2420,45 +2485,62 @@
     context.fillText(String(value || ''), x, y);
   }
 
+  function materialPreviewTokenIsCurrent(canvas, token) {
+    return canvas.id === 'material-live-card' ? token === workspaceMaterialPreviewToken : token === materialPreviewToken;
+  }
+
   async function drawMaterialPreview(canvas, item, token) {
     var logo = materialAsset(state.materialSettings.logo);
     var keyRender = materialAsset(state.materialSettings.key_render);
+    var backgroundRender = materialAsset(state.materialSettings.background_render);
     var plan = item.source_images && item.source_images[0] ? item.source_images[0].url : '';
     var loaded = await Promise.all([
       previewImage(logo && logo.url),
       previewImage(keyRender && keyRender.url),
-      previewImage(plan)
+      previewImage(plan),
+      previewImage(backgroundRender && backgroundRender.url)
     ]);
-    if (token !== materialPreviewToken) return;
+    if (!materialPreviewTokenIsCurrent(canvas, token)) return;
     var context = canvas.getContext('2d');
     var primary = normalizeHexColor(state.materialSettings.primary_color) || '#00605C';
-    var dark = darkerColor(primary, 0.78);
-    var accent = safeColor(state.assets && state.assets.brand && state.assets.brand.gold || '#CEAD75');
-    var muted = safeColor(state.assets && state.assets.brand && state.assets.brand.gray || '#9B9B9B');
+    var background = normalizeHexColor(state.materialSettings.background_color) || primary;
+    var textColor = normalizeHexColor(state.materialSettings.text_color) || '#FFFFFF';
+    var subtitleColor = normalizeHexColor(state.materialSettings.subtitle_color) || '#D7D7D7';
+    var dark = darkerColor(background, 0.72);
     var gradient = context.createLinearGradient(0, 0, 1200, 900);
-    gradient.addColorStop(0, primary);
+    gradient.addColorStop(0, background);
     gradient.addColorStop(1, dark);
     context.fillStyle = gradient;
     context.fillRect(0, 0, 1200, 900);
+    if (loaded[3]) {
+      context.save();
+      context.globalAlpha = 0.46;
+      drawCovered(context, loaded[3], 0, 0, 1200, 900);
+      context.restore();
+      context.fillStyle = background + '99';
+      context.fillRect(0, 0, 1200, 900);
+    }
 
     drawContained(context, loaded[0], 56, 54, 350, 111, 2);
-    context.strokeStyle = accent;
-    context.lineWidth = 2;
-    context.strokeRect(56, 235, 470, 405);
-    drawCovered(context, loaded[1], 64, 243, 454, 389);
+    if (state.cardSettings.show_key_render) {
+      context.strokeStyle = primary;
+      context.lineWidth = 2;
+      context.strokeRect(56, 235, 470, 405);
+      drawCovered(context, loaded[1], 64, 243, 454, 389);
+    }
 
     if (state.cardSettings.show_house_badge) {
       context.fillStyle = 'rgba(255,255,255,.08)';
       context.fillRect(56, 180, 145, 42);
-      canvasText(context, String(item.house || '').toUpperCase(), 74, 208, '700 19px Manrope, Arial', '#FFFFFF');
+      canvasText(context, String(item.house || '').toUpperCase(), 74, 208, '700 19px Manrope, Arial', textColor);
     }
-    canvasText(context, String(item.rooms || '') + '-КОМНАТНАЯ КВАРТИРА', 56, 696, '800 28px Manrope, Arial', '#FFFFFF');
+    canvasText(context, String(item.rooms || '') + '-КОМНАТНАЯ КВАРТИРА', 56, 696, '800 28px Manrope, Arial', textColor);
     if (state.cardSettings.show_decoration) {
-      canvasText(context, item.decoration || 'Без отделки', 56, 732, '500 18px Manrope, Arial', 'rgba(255,255,255,.78)');
+      canvasText(context, item.decoration || 'Без отделки', 56, 732, '500 18px Manrope, Arial', subtitleColor);
     }
-    context.fillStyle = accent;
+    context.fillStyle = primary;
     context.fillRect(56, 754, 405, 92);
-    canvasText(context, formatPrice(item.price), 258, 814, '800 36px Manrope, Arial', dark, 'center');
+    canvasText(context, formatPrice(item.price), 258, 814, '800 36px Manrope, Arial', textColor, 'center');
 
     context.fillStyle = '#FFFFFF';
     context.fillRect(584, 54, 560, 792);
@@ -2469,15 +2551,50 @@
     var labels = ['КОМНАТ', 'ПЛОЩАДЬ', 'ЭТАЖ'];
     var values = [String(item.rooms || ''), formatArea(item.area), String(item.floor || '') + '/' + String(item.floors || '')];
     centers.forEach(function (center, index) {
-      canvasText(context, labels[index], center, 758, '600 16px Manrope, Arial', muted, 'center');
+      canvasText(context, labels[index], center, 758, '600 16px Manrope, Arial', subtitleColor, 'center');
       canvasText(context, values[index], center, 812, '800 38px Manrope, Arial', primary, 'center');
     });
     context.fillStyle = '#DFE5E3';
     context.fillRect(775, 730, 1, 84);
     context.fillRect(945, 730, 1, 84);
     canvas.classList.remove('hidden');
-    $('#preview-image').classList.add('hidden');
-    $('#preview-material-note').classList.remove('hidden');
+    if (canvas.id === 'preview-live-card') {
+      $('#preview-image').classList.add('hidden');
+      $('#preview-material-note').classList.remove('hidden');
+    }
+  }
+
+  function renderMaterialWorkspacePreview() {
+    var select = $('#material-preview-lot');
+    var canvas = $('#material-live-card');
+    var empty = $('#material-preview-empty');
+    if (!select || !canvas || !empty) return;
+    var items = state.inventory && state.inventory.items || [];
+    if (!items.length) {
+      select.innerHTML = '<option value="">Квартиры появятся после загрузки фида</option>';
+      select.disabled = true;
+      canvas.classList.add('hidden');
+      empty.classList.remove('hidden');
+      return;
+    }
+    var selected = items.find(function (item) { return String(item.id) === String(state.materialPreviewId); }) || items[0];
+    state.materialPreviewId = selected.id;
+    select.disabled = false;
+    select.innerHTML = items.map(function (item) {
+      return '<option value="' + esc(item.id) + '">' + esc(item.house + ' · ' + item.rooms + 'к · ' + formatArea(item.area)) + '</option>';
+    }).join('');
+    select.value = selected.id;
+    empty.classList.add('hidden');
+    workspaceMaterialPreviewToken += 1;
+    canvas.dataset.logo = state.materialSettings.logo;
+    canvas.dataset.render = state.materialSettings.key_render;
+    canvas.dataset.backgroundRender = state.materialSettings.background_render;
+    canvas.dataset.primaryColor = normalizeHexColor(state.materialSettings.primary_color);
+    canvas.dataset.backgroundColor = normalizeHexColor(state.materialSettings.background_color);
+    canvas.dataset.textColor = normalizeHexColor(state.materialSettings.text_color);
+    canvas.dataset.subtitleColor = normalizeHexColor(state.materialSettings.subtitle_color);
+    canvas.dataset.showRender = String(state.cardSettings.show_key_render);
+    drawMaterialPreview(canvas, selected, workspaceMaterialPreviewToken);
   }
 
   function renderMaterialPreview(item) {
@@ -2498,7 +2615,12 @@
     note.classList.add('hidden');
     canvas.dataset.logo = state.materialSettings.logo;
     canvas.dataset.render = state.materialSettings.key_render;
+    canvas.dataset.backgroundRender = state.materialSettings.background_render;
     canvas.dataset.color = normalizeHexColor(state.materialSettings.primary_color);
+    canvas.dataset.backgroundColor = normalizeHexColor(state.materialSettings.background_color);
+    canvas.dataset.textColor = normalizeHexColor(state.materialSettings.text_color);
+    canvas.dataset.subtitleColor = normalizeHexColor(state.materialSettings.subtitle_color);
+    canvas.dataset.showRender = String(state.cardSettings.show_key_render);
     canvas.dataset.houseBadge = String(state.cardSettings.show_house_badge);
     canvas.dataset.decoration = String(state.cardSettings.show_decoration);
     drawMaterialPreview(canvas, item, token);
@@ -2520,7 +2642,7 @@
 
   function settingsPayload() {
     return {
-      version: 3,
+      version: 4,
       project: state.project.slug,
       rules: state.rules.map(normalizeRule),
       image_settings: clone(state.imageSettings),
@@ -2604,12 +2726,21 @@
     if (!state.materialSettings.logo || !state.materialSettings.key_render) return 'Выберите логотип и ключевой рендер.';
     var materialFiles = new Set((state.assets && state.assets.items || []).filter(function (asset) { return asset.exists; }).map(function (asset) { return asset.filename; }));
     if (!materialFiles.has(state.materialSettings.logo) || !materialFiles.has(state.materialSettings.key_render)) return 'Один из выбранных материалов недоступен.';
-    var primaryColor = normalizeHexColor(state.materialSettings.primary_color);
-    if (!primaryColor) return 'Выберите корректный основной цвет проекта.';
+    if (state.materialSettings.background_render && !materialFiles.has(state.materialSettings.background_render)) return 'Выбранный фоновый рендер недоступен.';
+    var colorRoles = [
+      ['primary_color', 'основной цвет'],
+      ['background_color', 'цвет фона'],
+      ['text_color', 'цвет текста'],
+      ['subtitle_color', 'цвет подзаголовков']
+    ];
+    var roleColors = colorRoles.map(function (role) { return normalizeHexColor(state.materialSettings[role[0]]); });
+    var invalidRoleIndex = roleColors.findIndex(function (color) { return !color; });
+    if (invalidRoleIndex >= 0) return 'Выберите корректный ' + colorRoles[invalidRoleIndex][1] + ' проекта.';
     if (!Array.isArray(state.materialSettings.palette) || !state.materialSettings.palette.length || state.materialSettings.palette.length > 24) return 'Палитра должна содержать от 1 до 24 цветов.';
     var paletteColors = state.materialSettings.palette.map(function (color) { return normalizeHexColor(color && color.value); });
     if (paletteColors.some(function (color) { return !color; }) || new Set(paletteColors).size !== paletteColors.length) return 'В палитре есть некорректные или повторяющиеся цвета.';
-    if (paletteColors.indexOf(primaryColor) < 0) return 'Основной цвет должен присутствовать в палитре проекта.';
+    var missingRoleIndex = roleColors.findIndex(function (color) { return paletteColors.indexOf(color) < 0; });
+    if (missingRoleIndex >= 0) return 'Назначенный ' + colorRoles[missingRoleIndex][1] + ' должен присутствовать в палитре проекта.';
     for (var i = 0; i < state.rules.length; i += 1) {
       var rule = state.rules[i];
       if (!rule.name.trim()) return 'У правила ' + (i + 1) + ' нет названия.';
@@ -2672,9 +2803,9 @@
       Object.keys(state.imageSettings.lot_overrides).length + ' индивидуальных галерей и ' + state.imageSettings.bulk_rules.length + ' массовых правил изображений.<br>' +
       Object.keys(state.parameterSettings.lot_values).length + ' квартир с дополнительными параметрами и ' + state.parameterSettings.bulk_rules.length + ' массовых правил параметров.<br>' +
       '<strong>' + state.excludedLotIds.length + ' лотов исключено из результирующего XML.</strong><br>' +
-      'Логотип: <strong>' + esc(state.materialSettings.logo) + '</strong><br>Ключевой рендер: <strong>' + esc(state.materialSettings.key_render) + '</strong>.<br>' +
-      'Основной цвет: <strong>' + esc(state.materialSettings.primary_color) + '</strong> · ' + state.materialSettings.palette.length + ' цветов в палитре.<br>' +
-      'Плашка дома: <strong>' + (state.cardSettings.show_house_badge ? 'показывается' : 'скрыта') + '</strong>; тип отделки: <strong>' + (state.cardSettings.show_decoration ? 'показывается' : 'скрыт') + '</strong>.' +
+      'Логотип: <strong>' + esc(state.materialSettings.logo) + '</strong><br>Рендер в макете: <strong>' + esc(state.materialSettings.key_render) + '</strong>; фон: <strong>' + esc(state.materialSettings.background_render || 'без изображения') + '</strong>.<br>' +
+      'Цвета — основной: <strong>' + esc(state.materialSettings.primary_color) + '</strong>, фон: <strong>' + esc(state.materialSettings.background_color) + '</strong>, текст: <strong>' + esc(state.materialSettings.text_color) + '</strong>, подзаголовки: <strong>' + esc(state.materialSettings.subtitle_color) + '</strong>.<br>' +
+      'Рендер в макете: <strong>' + (state.cardSettings.show_key_render ? 'показывается' : 'скрыт') + '</strong>; плашка дома: <strong>' + (state.cardSettings.show_house_badge ? 'показывается' : 'скрыта') + '</strong>; тип отделки: <strong>' + (state.cardSettings.show_decoration ? 'показывается' : 'скрыт') + '</strong>.' +
       (state.pendingUploadDeletions.length ? '<br><strong>' + state.pendingUploadDeletions.length + ' загруженных файлов будут физически удалены после публикации.</strong>' : '');
     $('#publish-modal').classList.remove('hidden');
   }
@@ -2938,14 +3069,26 @@
       showToast('Параметр назначен для ' + items.length + ' квартир');
     });
     $('#preview-lot').addEventListener('change', function (event) { state.previewId = event.target.value; renderPreview(); });
+    $('#material-preview-lot').addEventListener('change', function (event) {
+      state.materialPreviewId = event.target.value;
+      renderMaterialWorkspacePreview();
+    });
+    $('#show-key-render').addEventListener('change', function (event) {
+      state.cardSettings.show_key_render = event.target.checked;
+      setDirty(true);
+      renderAssets();
+      renderPreview();
+    });
     $('#show-house-badge').addEventListener('change', function (event) {
       state.cardSettings.show_house_badge = event.target.checked;
       setDirty(true);
+      renderAssets();
       renderPreview();
     });
     $('#show-decoration').addEventListener('change', function (event) {
       state.cardSettings.show_decoration = event.target.checked;
       setDirty(true);
+      renderAssets();
       renderPreview();
     });
     $('#add-rule').addEventListener('click', function () {
@@ -3058,6 +3201,7 @@
       var data = await loadProjectFiles(project);
       if (loadToken !== state.projectLoadToken) return;
       state.project = project;
+      rememberProject(project.slug);
       state.setupMode = false;
       state.inventory = data[0];
       state.status = data[2];
@@ -3088,6 +3232,7 @@
       try { state.feedRefreshOperation = JSON.parse(localStorage.getItem(feedRefreshKey()) || 'null'); } catch (error) { state.feedRefreshOperation = null; }
       state.activeRuleId = state.rules[0] ? state.rules[0].id : null;
       state.previewId = null;
+      state.materialPreviewId = null;
       state.imageLotId = null;
       state.parameterLotId = null;
       state.imageUploadBusy = false;
@@ -3135,6 +3280,7 @@
       if (loadToken !== state.projectLoadToken) return;
       var settings = payload.settings || {};
       state.project = project;
+      rememberProject(project.slug);
       state.setupMode = true;
       state.inventory = {
         slug: project.slug,
@@ -3169,6 +3315,7 @@
       state.materialUploadBusy = false;
       state.materialUploadMessage = '';
       state.materialUploadTone = '';
+      state.materialPreviewId = null;
       state.filters = { house: '', rooms: '', floor: '', search: '' };
       state.imageFilters = { house: '', rooms: '', floor: '', plan: '', search: '' };
       state.parameterFilters = { house: '', rooms: '', floor: '', plan: '', search: '' };
@@ -3192,7 +3339,7 @@
       bindStaticEvents();
       var requestedView = window.location.hash.replace('#', '');
       state.activeView = ['dashboard', 'lots', 'images', 'parameters', 'promotions', 'assets', 'preview'].indexOf(requestedView) >= 0 ? requestedView : 'dashboard';
-      await loadProject(state.registry.default_project);
+      await loadProject(preferredProjectSlug());
     } catch (error) {
       document.querySelector('main').innerHTML = '<section class="panel empty-state"><div><h2>Кабинет временно недоступен</h2><p>' + esc(error.message) + '</p></div></section>';
     }

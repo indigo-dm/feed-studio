@@ -41,12 +41,12 @@ const contentTypes = {
     sessionStorage.setItem(key, 'granted');
     sessionStorage.setItem(key + ':upload-credential', 'qa-password');
     localStorage.setItem('feed-studio-rules-v1-novyy-gorizont', JSON.stringify({
-      version: 3,
+      version: 4,
       rules: publishedSettings.rules || [],
       image_settings: publishedSettings.image_settings || { lot_overrides: {}, bulk_rules: [] },
       parameter_settings: publishedSettings.parameter_settings || { lot_values: {}, bulk_rules: [] },
-      material_settings: publishedSettings.material_settings || { logo: '', key_render: '', primary_color: '', palette: [] },
-      card_settings: publishedSettings.card_settings || { show_house_badge: true, show_decoration: true },
+      material_settings: publishedSettings.material_settings || { logo: '', key_render: '', background_render: '', primary_color: '', background_color: '', text_color: '', subtitle_color: '', palette: [] },
+      card_settings: publishedSettings.card_settings || { show_key_render: true, show_house_badge: true, show_decoration: true },
       excluded_lot_ids: publishedSettings.excluded_lot_ids || [],
       pending_upload_deletions: []
     }));
@@ -116,13 +116,14 @@ const contentTypes = {
           image_settings: { lot_overrides: {}, bulk_rules: [] },
           parameter_settings: { lot_values: {}, bulk_rules: [] },
           material_settings: {
-            logo: 'logo.svg', key_render: 'key-render.jpg', primary_color: '#3F245C',
-            palette: [{ name: 'Основной', value: '#3F245C' }]
+            logo: 'logo.svg', key_render: 'key-render.jpg', background_render: '', primary_color: '#3F245C',
+            background_color: '#3F245C', text_color: '#FFFFFF', subtitle_color: '#924694',
+            palette: [{ name: 'Основной', value: '#3F245C' }, { name: 'Белый', value: '#FFFFFF' }, { name: 'Подзаголовки', value: '#924694' }]
           }
         },
         assets: {
           project: slug, slug, upload_service_url: 'https://feed-api.indigo-dm.ru',
-          current: { logo: 'logo.svg', key_render: 'key-render.jpg' },
+          current: { logo: 'logo.svg', key_render: 'key-render.jpg', background_render: '' },
           brand: { green: '#3F245C', green_dark: '#1D1D1B', gold: '#924694', gray: '#48277F', white: '#FFFFFF', font: 'Manrope', palette: [{ name: 'Основной', value: '#3F245C' }] },
           items: [
             { key: 'logo', name: 'Логотип', filename: 'logo.svg', exists: true, url: 'https://assets.example.test/logo.png', active_for: ['logo'] },
@@ -185,11 +186,15 @@ const contentTypes = {
     }
     switchedProjects.push(project.slug);
   }
+  const projectSessionCacheWorks = Object.values(projectDataRequests).every((count) => count <= 4);
+  const projectBeforeReload = switchedProjects[switchedProjects.length - 1];
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForFunction((slug) => document.querySelector('#project-select')?.value === slug, projectBeforeReload);
+  const projectRefreshPersistenceWorks = await page.locator('#project-select').inputValue() === projectBeforeReload;
   await page.locator('#project-select').selectOption('novyy-gorizont');
   await page.waitForFunction(() => document.querySelector('#project-select')?.value === 'novyy-gorizont' &&
     document.querySelector('#project-name')?.textContent.replace(/\s+/g, ' ').trim().toUpperCase() === 'ЖК НОВЫЙ ГОРИЗОНТ');
   const projectSwitchingWorks = switchedProjects.length === availableProjects.length && availableProjects.length >= 4;
-  const projectSessionCacheWorks = Object.values(projectDataRequests).every((count) => count <= 4);
   const publicFeedHref = await page.locator('#full-feed-link').getAttribute('href');
   await page.locator('#source-feed-url').fill('https://profitbase.example/private-feed?token=qa-secret');
   await page.locator('#save-source-feed').click();
@@ -205,6 +210,7 @@ const contentTypes = {
     console.error(JSON.stringify({ errors, body: (await page.locator('body').innerText()).slice(0, 2000) }, null, 2));
   }
   await page.locator('[data-use-material="key_render"][data-material-file="uploads/mat-qa-library.webp"]').click();
+  await page.locator('[data-use-material="background_render"][data-material-file="uploads/mat-qa-library.webp"]').click();
   const selectedLibrary = await page.locator('.asset-status.active').allTextContents();
   await page.locator('#material-file-input').setInputFiles({
     name: 'Новый логотип.jpg',
@@ -219,19 +225,22 @@ const contentTypes = {
   const cardsAfterUpload = await page.locator('.asset-card').count();
   await page.locator('[data-use-material="logo"][data-material-file="uploads/mat-qa-new.png"]').click();
   const initialPaletteCount = await page.locator('#brand-palette .palette-item').count();
-  const currentPaletteMarkers = await page.locator('#brand-palette .palette-status', { hasText: 'Используется' }).count();
+  const currentPaletteMarkers = await page.locator('#brand-palette .palette-role-tags span').count();
   await page.locator('#new-brand-color').fill('#123ABC');
   await page.locator('#add-brand-color').click();
   const paletteAfterAdd = await page.locator('#brand-palette .palette-item').count();
-  await page.locator('[data-use-brand-color="#123ABC"]').click();
-  const selectedColorStatus = await page.locator('#brand-palette .palette-item.selected .palette-status').innerText();
+  await page.locator('[data-use-color-role="primary_color"][data-use-brand-color="#123ABC"]').click();
+  const selectedColorStatus = await page.locator('#brand-palette .palette-item', { has: page.locator('[data-use-brand-color="#123ABC"]') }).locator('.palette-role-tags').innerText();
   const publishedColorDeleteButtons = await page.locator('#brand-palette .palette-item.published [data-delete-brand-color]').count();
   const removedColor = await page.locator('#brand-palette [data-delete-brand-color]').first().getAttribute('data-delete-brand-color');
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('#brand-palette [data-delete-brand-color]').first().click();
   const paletteAfterDelete = await page.locator('#brand-palette .palette-item').count();
-  const cardOptionsDefaultOn = await page.locator('#show-house-badge').isChecked() &&
+  const materialWorkspacePreviewVisible = await page.locator('#material-live-card').isVisible();
+  const cardOptionsDefaultOn = await page.locator('#show-key-render').isChecked() &&
+    await page.locator('#show-house-badge').isChecked() &&
     await page.locator('#show-decoration').isChecked();
+  await page.locator('#show-key-render').uncheck();
   await page.locator('#show-house-badge').uncheck();
   await page.locator('#show-decoration').uncheck();
 
@@ -242,6 +251,8 @@ const contentTypes = {
     logo: canvas.dataset.logo,
     render: canvas.dataset.render,
     color: canvas.dataset.color,
+    backgroundRender: canvas.dataset.backgroundRender,
+    showRender: canvas.dataset.showRender,
     houseBadge: canvas.dataset.houseBadge,
     decoration: canvas.dataset.decoration,
     publishedImageHidden: document.querySelector('#preview-image')?.classList.contains('hidden'),
@@ -423,7 +434,7 @@ const contentTypes = {
   await page.waitForFunction(() => window.localStorage.getItem('feed-studio-publish-v1-novyy-gorizont'));
 
   const result = {
-    ok: errors.length === 0 && loadingIndicatorAvailable && projectSessionCacheWorks && redundantDraftCleared && emptyPublishDisabled && !emptyDraftStatus.includes('не применён') && projectSwitchingWorks && sourceFeedSettingWorks && staleManualDateHidden && sourceStateText.includes('Источник проверен') && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 3 && activeBefore === 2 && selectedLibrary.some((text) => text.includes('Ключевой рендер')) && cardsAfterUpload === initialCards + 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 1 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.toLowerCase().includes('после публикации') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && cardOptionsDefaultOn && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.color === '#123ABC' && liveMaterialPreview.houseBadge === 'false' && liveMaterialPreview.decoration === 'false' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && imagePlanOptions > 1 && /^plan-[0-9a-f]{12}$/.test(selectedImagePlan) && selectedImagePlanCount > 0 && imagePlanRuleCreated && individualParameterOptions === 9 && bulkParameterOptions === 10 && bulkDescriptionShortcodeExcluded && bulkDescriptionStartsEmpty && bulkDescriptionExpandVisible && bulkDescriptionModalVisible && bulkDescriptionModalSize.width > 700 && bulkDescriptionModalSize.height >= 320 && bulkDescriptionModalShortcodeInserted && bulkDescriptionContentPreserved && bulkDescriptionEscapeCloses && descriptionEditorVisible && descriptionShortcodes >= 5 && descriptionShortcodeExcluded && addressShownFully && descriptionPreviewVisible && descriptionBlocksNormalized && descriptionFormattingPreserved && descriptionTemplateKept && descriptionResolved && roomsParameterAvailable && roomsStartsFromSource && roomsShortcodeUsesOverride && planOptions > 1 && parameterToolbarLayout.planWidth <= 270 && parameterToolbarLayout.singleRow && /^plan-[0-9a-f]{12}$/.test(selectedPlan) && selectedPlanCount > 0 && parameterIndividualBefore === 1 && parameterIndividualLabels.includes('Описание') && parameterIndividualLabels.includes('Количество комнат') && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && excludedCardMarked === 1 && submitted && submitted.version === 3 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor) && submitted.card_settings.show_house_badge === false && submitted.card_settings.show_decoration === false,
+    ok: errors.length === 0 && loadingIndicatorAvailable && projectSessionCacheWorks && redundantDraftCleared && emptyPublishDisabled && !emptyDraftStatus.includes('не применён') && projectSwitchingWorks && projectRefreshPersistenceWorks && sourceFeedSettingWorks && staleManualDateHidden && sourceStateText.includes('Источник проверен') && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 3 && activeBefore === 2 && selectedLibrary.some((text) => text.includes('Рендер в макете')) && cardsAfterUpload === initialCards + 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 4 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.includes('Основной') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && materialWorkspacePreviewVisible && cardOptionsDefaultOn && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.backgroundRender === 'uploads/mat-qa-library.webp' && liveMaterialPreview.showRender === 'false' && liveMaterialPreview.color === '#123ABC' && liveMaterialPreview.houseBadge === 'false' && liveMaterialPreview.decoration === 'false' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && imagePlanOptions > 1 && /^plan-[0-9a-f]{12}$/.test(selectedImagePlan) && selectedImagePlanCount > 0 && imagePlanRuleCreated && individualParameterOptions === 9 && bulkParameterOptions === 10 && bulkDescriptionShortcodeExcluded && bulkDescriptionStartsEmpty && bulkDescriptionExpandVisible && bulkDescriptionModalVisible && bulkDescriptionModalSize.width > 700 && bulkDescriptionModalSize.height >= 320 && bulkDescriptionModalShortcodeInserted && bulkDescriptionContentPreserved && bulkDescriptionEscapeCloses && descriptionEditorVisible && descriptionShortcodes >= 5 && descriptionShortcodeExcluded && addressShownFully && descriptionPreviewVisible && descriptionBlocksNormalized && descriptionFormattingPreserved && descriptionTemplateKept && descriptionResolved && roomsParameterAvailable && roomsStartsFromSource && roomsShortcodeUsesOverride && planOptions > 1 && parameterToolbarLayout.planWidth <= 270 && parameterToolbarLayout.singleRow && /^plan-[0-9a-f]{12}$/.test(selectedPlan) && selectedPlanCount > 0 && parameterIndividualBefore === 1 && parameterIndividualLabels.includes('Описание') && parameterIndividualLabels.includes('Количество комнат') && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && excludedCardMarked === 1 && submitted && submitted.version === 4 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.background_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor) && submitted.card_settings.show_key_render === false && submitted.card_settings.show_house_badge === false && submitted.card_settings.show_decoration === false,
     errors,
     empty_draft: {
       cleared: redundantDraftCleared,
@@ -433,7 +444,8 @@ const contentTypes = {
     project_switching: {
       available: availableProjects.map((project) => project.slug),
       switched: switchedProjects,
-      works: projectSwitchingWorks
+      works: projectSwitchingWorks,
+      refresh_persistence: projectRefreshPersistenceWorks
     },
     project_loading: {
       indicator_available: loadingIndicatorAvailable,

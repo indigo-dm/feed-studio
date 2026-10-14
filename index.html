@@ -256,73 +256,89 @@
 
         <section class="view" id="view-assets">
           <div class="notice">
-            <div><strong>Материалы выбранного объекта</strong><span>Загружайте варианты и назначайте активные логотип и ключевой рендер прямо в Feed Studio.</span></div>
+            <div><strong>Материалы выбранного объекта</strong><span>Соберите внешний вид карточки сверху вниз: проверьте результат, настройте элементы, цвета и только затем выберите файлы.</span></div>
             <span class="notice-badge">АВТО</span>
           </div>
-          <div class="assets-layout">
-            <section class="panel">
-              <div class="panel-heading"><div><p class="eyebrow">Фирменные материалы</p><h2>Логотипы, рендеры и цвета</h2></div></div>
-              <section class="source-feed-settings" aria-labelledby="source-feed-settings-title">
-                <div class="source-feed-heading">
-                  <div><p class="eyebrow">Источник данных</p><h2 id="source-feed-settings-title">Родительский фид Profitbase</h2></div>
-                  <span class="source-feed-badge" id="source-feed-badge">Проверяем…</span>
-                </div>
-                <p class="helper">Закрытая ссылка хранится отдельно от материалов и не отображается после сохранения. Чтобы заменить адрес, вставьте новую ссылку целиком.</p>
-                <div class="source-feed-row">
-                  <label class="field"><span>Новый адрес родительского фида</span><input id="source-feed-url" type="url" inputmode="url" maxlength="4096" placeholder="https://…" autocomplete="off" spellcheck="false"></label>
-                  <button class="button button-secondary" id="save-source-feed" type="button">Сохранить адрес</button>
-                </div>
-                <p class="source-feed-detail" id="source-feed-detail">Статус источника загружается…</p>
-              </section>
-              <div class="material-upload-block">
-                <input id="material-file-input" type="file" accept="image/jpeg,image/png,image/webp,image/svg+xml" hidden>
-                <div class="image-drop-zone" id="material-drop-zone" tabindex="0" role="button" aria-label="Загрузить фирменный материал">
-                  <span class="image-drop-icon">＋</span>
-                  <div><strong>Перетащите логотип или рендер сюда</strong><small>JPG, PNG, WebP или SVG. Растровые файлы автоматически уменьшаются до 2400 px.</small></div>
-                  <button class="button button-primary" id="choose-material-file" type="button">Выбрать файл</button>
-                </div>
-                <p class="image-upload-status" id="material-upload-status"></p>
-              </div>
-              <div class="asset-grid" id="asset-grid"></div>
-              <section class="palette-editor">
-                <div class="panel-heading"><div><p class="eyebrow">Палитра проекта</p><h2>Основной цвет макета</h2></div></div>
-                <p class="helper">Текущий основной цвет отмечен. Выберите другой из палитры или добавьте новый по HEX-коду.</p>
-                <div class="color-add-row">
-                  <label class="field"><span>Новый цвет</span><input id="new-brand-color" type="text" inputmode="text" maxlength="7" placeholder="#7E3FF2" autocomplete="off"></label>
-                  <button class="button button-secondary" id="add-brand-color" type="button">Добавить цвет</button>
-                </div>
-              </section>
-              <div class="brand-palette" id="brand-palette"></div>
-              <section class="card-layout-settings" aria-labelledby="card-layout-title">
+          <section class="panel material-preview-panel" aria-labelledby="material-preview-title">
+            <div class="panel-heading">
+              <div><p class="eyebrow">Текущий результат</p><h2 id="material-preview-title">Предпросмотр брендированной карточки</h2><p class="section-copy">Все изменения ниже сразу отображаются здесь. В фид они попадут только после публикации.</p></div>
+              <label class="compact-select"><span>Квартира</span><select id="material-preview-lot"></select></label>
+            </div>
+            <div class="material-preview-stage">
+              <canvas id="material-live-card" width="1200" height="900" aria-label="Предпросмотр карточки с текущими материалами"></canvas>
+              <div class="material-preview-empty hidden" id="material-preview-empty">Предпросмотр появится после загрузки квартир объекта.</div>
+            </div>
+          </section>
+
+          <section class="panel material-settings-panel">
+            <section class="card-layout-settings" aria-labelledby="card-layout-title">
+              <div class="material-section-heading">
+                <span class="material-section-number">1</span>
                 <div>
-                  <p class="eyebrow">Настройки макета</p>
+                  <p class="eyebrow">Состав карточки</p>
                   <h3 id="card-layout-title">Элементы брендированной карточки</h3>
-                  <p>Настройки применяются ко всем квартирам только выбранного объекта после публикации.</p>
+                  <p>Включайте только те элементы, которые нужны в готовом макете.</p>
                 </div>
-                <div class="card-layout-options">
-                  <label class="card-layout-option" for="show-house-badge">
-                    <span><strong>Плашка дома</strong><small>Например, «ДОМ 3»</small></span>
-                    <span class="switch"><input id="show-house-badge" type="checkbox"><span aria-hidden="true"></span></span>
-                  </label>
-                  <label class="card-layout-option" for="show-decoration">
-                    <span><strong>Тип отделки</strong><small>Например, «Без отделки»</small></span>
-                    <span class="switch"><input id="show-decoration" type="checkbox"><span aria-hidden="true"></span></span>
-                  </label>
-                </div>
-                <p class="card-layout-note">Изменения сразу видны в разделе «Предпросмотр», а в фид попадут после публикации.</p>
-              </section>
+              </div>
+              <div class="card-layout-options">
+                <label class="card-layout-option" for="show-key-render">
+                  <span><strong>Рендер в макете</strong><small>Отдельное изображение в левой части карточки</small></span>
+                  <span class="switch"><input id="show-key-render" type="checkbox"><span aria-hidden="true"></span></span>
+                </label>
+                <label class="card-layout-option" for="show-house-badge">
+                  <span><strong>Плашка дома</strong><small>Например, «ДОМ 3»</small></span>
+                  <span class="switch"><input id="show-house-badge" type="checkbox"><span aria-hidden="true"></span></span>
+                </label>
+                <label class="card-layout-option" for="show-decoration">
+                  <span><strong>Тип отделки</strong><small>Например, «Без отделки»</small></span>
+                  <span class="switch"><input id="show-decoration" type="checkbox"><span aria-hidden="true"></span></span>
+                </label>
+              </div>
             </section>
-            <aside class="panel asset-guide">
-              <p class="eyebrow">Как это работает</p>
-              <h2>Замена материалов</h2>
-              <ol class="flow-list">
-                <li><span>1</span><div><strong>Загрузите файл</strong><small>Проводником или перетаскиванием, без перехода в GitHub.</small></div></li>
-                <li><span>2</span><div><strong>Назначьте роль</strong><small>Нажмите «Сделать логотипом» или «Сделать рендером».</small></div></li>
-                <li><span>3</span><div><strong>Проверьте отметку</strong><small>На активном файле появится статус «Используется».</small></div></li>
-                <li><span>4</span><div><strong>Примените изменения</strong><small>Одна публикация обновит макеты выбранного ЖК.</small></div></li>
-              </ol>
-            </aside>
-          </div>
+
+            <section class="palette-editor" aria-labelledby="palette-title">
+              <div class="material-section-heading">
+                <span class="material-section-number">2</span>
+                <div><p class="eyebrow">Палитра проекта</p><h2 id="palette-title">Цвета макета</h2><p>Назначьте цветам роли: основной, фон, текст и подзаголовки.</p></div>
+              </div>
+              <div class="color-role-summary" id="color-role-summary"></div>
+              <div class="color-add-row">
+                <label class="field"><span>Новый цвет</span><input id="new-brand-color" type="text" inputmode="text" maxlength="7" placeholder="#7E3FF2" autocomplete="off"></label>
+                <button class="button button-secondary" id="add-brand-color" type="button">Добавить цвет</button>
+              </div>
+              <div class="brand-palette" id="brand-palette"></div>
+            </section>
+          </section>
+
+          <section class="panel material-library-panel">
+            <div class="material-section-heading">
+              <span class="material-section-number">3</span>
+              <div><p class="eyebrow">Библиотека файлов</p><h2>Логотипы и рендеры</h2><p>Для каждого файла можно назначить роль логотипа, рендера в макете или фонового изображения.</p></div>
+            </div>
+            <div class="material-upload-block">
+              <input id="material-file-input" type="file" accept="image/jpeg,image/png,image/webp,image/svg+xml" hidden>
+              <div class="image-drop-zone" id="material-drop-zone" tabindex="0" role="button" aria-label="Загрузить фирменный материал">
+                <span class="image-drop-icon">＋</span>
+                <div><strong>Перетащите логотип или рендер сюда</strong><small>JPG, PNG, WebP или SVG. Растровые файлы автоматически уменьшаются до 2400 px.</small></div>
+                <button class="button button-primary" id="choose-material-file" type="button">Выбрать файл</button>
+              </div>
+              <p class="image-upload-status" id="material-upload-status"></p>
+            </div>
+            <div class="asset-grid" id="asset-grid"></div>
+          </section>
+
+          <section class="panel source-feed-settings" aria-labelledby="source-feed-settings-title">
+            <div class="source-feed-heading">
+              <div><p class="eyebrow">Источник данных</p><h2 id="source-feed-settings-title">Родительский фид Profitbase</h2></div>
+              <span class="source-feed-badge" id="source-feed-badge">Проверяем…</span>
+            </div>
+            <p class="helper">Закрытая ссылка хранится отдельно от материалов и не отображается после сохранения. Чтобы заменить адрес, вставьте новую ссылку целиком.</p>
+            <div class="source-feed-row">
+              <label class="field"><span>Новый адрес родительского фида</span><input id="source-feed-url" type="url" inputmode="url" maxlength="4096" placeholder="https://…" autocomplete="off" spellcheck="false"></label>
+              <button class="button button-secondary" id="save-source-feed" type="button">Сохранить адрес</button>
+            </div>
+            <p class="source-feed-detail" id="source-feed-detail">Статус источника загружается…</p>
+          </section>
         </section>
 
         <section class="view" id="view-preview">
