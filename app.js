@@ -40,6 +40,7 @@
     imageUploadMessage: '',
     imageUploadTone: '',
     materialUploadBusy: false,
+    materialDeleteBusy: '',
     materialUploadMessage: '',
     materialUploadTone: '',
     sourceFeedStatus: null,
@@ -773,13 +774,13 @@
 
   function lotCaption(id) {
     var item = lotById(id);
-    return item ? item.house + ' · ' + item.rooms + 'к · ' + formatArea(item.area) : 'Нет в текущем фиде Profitbase';
+    return item ? item.house + ' · ' + item.rooms + 'к · ' + formatArea(item.area) : 'Нет в текущем исходном фиде';
   }
 
   function openIndividualLot(section, id) {
     var item = lotById(id);
     if (!item) {
-      showToast('Лота ID ' + id + ' уже нет в текущем фиде Profitbase. Настройку можно удалить из списка.');
+      showToast('Лота ID ' + id + ' уже нет в текущем исходном фиде. Настройку можно удалить из списка.');
       return;
     }
     if (section === 'images') {
@@ -842,7 +843,7 @@
     $('#pilot-feed-link').href = projectBase + '/pilot-avito.xml';
     var mobileFeedLinks = window.matchMedia && window.matchMedia('(max-width: 860px)').matches;
     var feedLinkAction = mobileFeedLinks ? ' · копировать' : ' ↗';
-    $('#source-feed-link').textContent = 'Полученный фид из Profitbase' + feedLinkAction;
+    $('#source-feed-link').textContent = 'Исходный фид' + feedLinkAction;
     $('#full-feed-link').textContent = 'Полный фид · ' + state.inventory.full_ads + ' квартир' + feedLinkAction;
     $('#pilot-feed-link').textContent = 'Тестовый фид · ' + state.status.unique_plans + ' планировок' + feedLinkAction;
     $('#feed-links-menu').classList.toggle('hidden', state.setupMode);
@@ -872,11 +873,18 @@
       if (state.materialSettings.logo === asset.filename) roles.push('Логотип');
       if (state.materialSettings.key_render === asset.filename) roles.push('Рендер в макете');
       if (state.materialSettings.background_render === asset.filename) roles.push('Фон карточки');
-      var status = roles.length ? 'Используется: ' + roles.join(' · ') : (asset.exists ? 'В библиотеке' : 'Файл отсутствует');
+      var publishedRoles = [];
+      if (state.publishedMaterialSettings.logo === asset.filename) publishedRoles.push('Логотип');
+      if (state.publishedMaterialSettings.key_render === asset.filename) publishedRoles.push('Рендер в макете');
+      if (state.publishedMaterialSettings.background_render === asset.filename) publishedRoles.push('Фон карточки');
+      var status = roles.length ? 'Используется: ' + roles.join(' · ') :
+        (publishedRoles.length ? 'Опубликован: ' + publishedRoles.join(' · ') : (asset.exists ? 'В библиотеке' : 'Файл отсутствует'));
       var actionButtons = asset.exists ?
         (state.materialSettings.logo === asset.filename ? '' : '<button class="button button-secondary button-small" data-use-material="logo" data-material-file="' + esc(asset.filename) + '">Сделать логотипом</button>') +
         (state.materialSettings.key_render === asset.filename ? '' : '<button class="button button-secondary button-small" data-use-material="key_render" data-material-file="' + esc(asset.filename) + '">Вставить в макет</button>') +
-        (state.materialSettings.background_render === asset.filename ? '' : '<button class="button button-secondary button-small" data-use-material="background_render" data-material-file="' + esc(asset.filename) + '">Сделать фоном</button>') : '';
+        (state.materialSettings.background_render === asset.filename ? '' : '<button class="button button-secondary button-small" data-use-material="background_render" data-material-file="' + esc(asset.filename) + '">Сделать фоном</button>') +
+        (asset.uploaded && !roles.length && !publishedRoles.length ? '<button class="button button-danger button-small" data-delete-material="' + esc(asset.filename) + '" data-material-name="' + esc(asset.name) + '"' +
+          (state.materialDeleteBusy ? ' disabled' : '') + '>' + (state.materialDeleteBusy === asset.filename ? 'Удаляем…' : 'Удалить') + '</button>' : '') : '';
       var actions = actionButtons ? '<div class="asset-footer"><div class="asset-actions">' + actionButtons + '</div></div>' : '';
       return '<article class="asset-card ' + (roles.length ? 'active' : '') + '"><div class="asset-preview">' + preview + '<div class="asset-copy"><div><strong>' +
         esc(asset.name) + '</strong><span class="asset-status ' + (roles.length ? 'active' : (asset.exists ? 'ready' : '')) + '">' +
@@ -890,6 +898,11 @@
         renderAssets();
         var labels = { logo: 'Логотип', key_render: 'Рендер в макете', background_render: 'Фон карточки' };
         showToast((labels[button.dataset.useMaterial] || 'Материал') + ' выбран и уже доступен в предпросмотре');
+      });
+    });
+    $$('[data-delete-material]', $('#asset-grid')).forEach(function (button) {
+      button.addEventListener('click', function () {
+        deleteMaterialFile(button.dataset.deleteMaterial, button.dataset.materialName || 'Материал');
       });
     });
     var palette = state.materialSettings.palette || [];
@@ -978,7 +991,7 @@
     if (source && source.configured) {
       badge.textContent = 'Подключён';
       badge.classList.add('ready');
-      detail.textContent = 'Сохранён закрытый адрес на домене ' + source.hostname +
+      detail.textContent = 'Закрытый адрес исходного фида сохранён' +
         (source.updatedAt ? ' · изменён ' + formatDateTime(source.updatedAt) : '') + '. Сам адрес повторно не отображается.';
       return;
     }
@@ -991,7 +1004,7 @@
     if (source) {
       badge.textContent = 'Не указан';
       badge.classList.add('missing');
-      detail.textContent = 'Добавьте закрытую HTTPS-ссылку Profitbase для этого объекта.';
+      detail.textContent = 'Добавьте закрытую HTTPS-ссылку на исходный фид этого объекта.';
       return;
     }
     badge.textContent = 'Проверяем…';
@@ -1027,7 +1040,7 @@
     var input = $('#source-feed-url');
     var value = input.value.trim();
     if (!/^https:\/\//i.test(value)) {
-      showToast('Укажите полный HTTPS-адрес родительского фида.');
+      showToast('Укажите полный HTTPS-адрес исходного фида.');
       input.focus();
       return;
     }
@@ -1051,8 +1064,8 @@
       input.value = '';
       startInitialRefresh = state.setupMode;
       showToast(startInitialRefresh
-        ? 'Источник подключён. Начинаем первичную загрузку квартир Profitbase.'
-        : 'Закрытый адрес сохранён. Нажмите «Обновить Profitbase», чтобы получить актуальные данные.');
+        ? 'Источник подключён. Начинаем первичную загрузку квартир из исходного фида.'
+        : 'Закрытый адрес сохранён. Нажмите «Обновить исходный фид», чтобы получить актуальные данные.');
     } catch (error) {
       state.sourceFeedStatus = { error: error.message || 'Не удалось сохранить адрес.' };
       showToast(state.sourceFeedStatus.error);
@@ -1283,7 +1296,7 @@
       sourceState.textContent = state.status && state.status.checked_at
         ? 'Источник проверен · ' + formatDateTime(state.status.checked_at)
         : 'Дата проверки источника недоступна';
-      sourceState.title = 'Дата последнего получения фида Profitbase — автоматического или ручного.';
+      sourceState.title = 'Дата последнего получения исходного фида — автоматического или ручного.';
     }
     button.className = 'button button-secondary feed-refresh-button';
     var setupSourceMissing = state.setupMode && !(state.sourceFeedStatus && state.sourceFeedStatus.configured);
@@ -1294,7 +1307,7 @@
       return;
     }
     if (status === 'building') {
-      button.textContent = 'Получаем Profitbase…';
+      button.textContent = 'Получаем исходный фид…';
       button.classList.add('processing');
       return;
     }
@@ -1304,7 +1317,7 @@
       return;
     }
     if (status === 'published') {
-      button.textContent = 'Обновить Profitbase';
+      button.textContent = 'Обновить исходный фид';
       button.title = 'Последнее ручное обновление завершено ' + formatDateTime(operation.completedAt) + '. Нажмите, чтобы получить данные снова.';
       return;
     }
@@ -1314,10 +1327,10 @@
       button.title = operation.message || 'Обновление завершилось ошибкой.';
       return;
     }
-    button.textContent = 'Обновить Profitbase';
+    button.textContent = 'Обновить исходный фид';
     button.title = setupSourceMissing
       ? 'Сначала сохраните адрес родительского фида в разделе «Материалы»'
-      : 'Получить актуальный фид выбранного объекта из Profitbase';
+      : 'Получить актуальный исходный фид выбранного объекта';
   }
 
   async function pollFeedRefreshStatus() {
@@ -1332,19 +1345,19 @@
         cache: 'no-store'
       });
       var payload = await response.json().catch(function () { return {}; });
-      if (!response.ok) throw new Error(payload.error || 'Не удалось получить статус обновления Profitbase.');
+      if (!response.ok) throw new Error(payload.error || 'Не удалось получить статус обновления исходного фида.');
       operation.status = String(payload.status || operation.status);
       operation.completedAt = payload.completedAt || operation.completedAt || '';
       operation.message = payload.message || '';
       operation.runUrl = payload.runUrl || operation.runUrl || '';
       storeFeedRefreshOperation(operation);
       if (operation.status === 'published') {
-        showToast('Profitbase обновлён, готовый XML опубликован');
+        showToast('Исходный фид обновлён, готовый XML опубликован');
         await refreshPublishedProject();
         return;
       }
       if (operation.status === 'failed') {
-        showToast(operation.message || 'Обновление Profitbase завершилось ошибкой.');
+        showToast(operation.message || 'Обновление исходного фида завершилось ошибкой.');
         return;
       }
     } catch (error) {
@@ -1374,18 +1387,18 @@
         body: JSON.stringify({ project: state.project.slug })
       });
       var payload = await response.json().catch(function () { return {}; });
-      if (!response.ok) throw new Error(payload.error || 'Не удалось запустить обновление Profitbase.');
+      if (!response.ok) throw new Error(payload.error || 'Не удалось запустить обновление исходного фида.');
       storeFeedRefreshOperation({
         request: payload.request,
         project: state.project.slug,
         status: payload.status || 'queued',
         requestedAt: payload.requestedAt || new Date().toISOString()
       });
-      showToast(state.dirty || state.draftSaved ? 'Обновление начато. Черновик настроек не применяется до публикации.' : 'Получаем актуальные данные Profitbase для выбранного объекта.');
+      showToast(state.dirty || state.draftSaved ? 'Обновление начато. Черновик настроек не применяется до публикации.' : 'Получаем актуальные данные исходного фида для выбранного объекта.');
       pollFeedRefreshStatus();
     } catch (error) {
       storeFeedRefreshOperation({ project: state.project.slug, status: 'failed', message: error.message || 'Не удалось запустить обновление.' });
-      showToast(error.message || 'Не удалось запустить обновление Profitbase.');
+      showToast(error.message || 'Не удалось запустить обновление исходного фида.');
     } finally {
       state.feedRefreshBusy = false;
       renderFeedRefreshState();
@@ -1426,7 +1439,12 @@
       if (!response.ok) return;
       var payload = await response.json();
       if (!state.project || state.project.slug !== slug) return;
-      mergeMaterialItems(payload.items || []);
+      var liveItems = Array.isArray(payload.items) ? payload.items : [];
+      var liveFiles = new Set(liveItems.map(function (item) { return String(item.filename || ''); }));
+      state.assets.items = (state.assets.items || []).filter(function (item) {
+        return !item.uploaded || liveFiles.has(String(item.filename || ''));
+      });
+      mergeMaterialItems(liveItems);
     } catch (error) {
       return;
     }
@@ -1508,6 +1526,43 @@
     } finally {
       state.materialUploadBusy = false;
       renderMaterialUploadState();
+    }
+  }
+
+  async function deleteMaterialFile(filename, name) {
+    if (!state.project || !uploadServiceUrl() || state.materialDeleteBusy) return;
+    var roles = ['logo', 'key_render', 'background_render'];
+    var usedInDraft = roles.some(function (role) { return state.materialSettings[role] === filename; });
+    var usedPublished = roles.some(function (role) { return state.publishedMaterialSettings[role] === filename; });
+    if (usedInDraft || usedPublished) {
+      showToast('Сначала назначьте другой материал и примените изменения к фиду.');
+      return;
+    }
+    if (!window.confirm('Удалить материал «' + name + '» без возможности восстановления?')) return;
+    var credential = window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.get ? window.FEED_STUDIO_CREDENTIAL.get() : '';
+    if (!credential) {
+      showToast('Выйдите и войдите в Feed Studio повторно.');
+      return;
+    }
+    state.materialDeleteBusy = filename;
+    setMaterialUploadMessage('Удаляем материал…', '');
+    renderAssets();
+    try {
+      var response = await fetch(serviceEndpoint('/materials'), {
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer ' + credential, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project: state.project.slug, filename: filename })
+      });
+      var payload = await response.json().catch(function () { return {}; });
+      if (!response.ok) throw new Error(payload.error || 'Не удалось удалить материал.');
+      state.assets.items = state.assets.items.filter(function (item) { return item.filename !== filename; });
+      setMaterialUploadMessage('Материал удалён из библиотеки.', 'success');
+      showToast('Неиспользуемый материал удалён');
+    } catch (error) {
+      setMaterialUploadMessage(error.message || 'Не удалось удалить материал.', 'error');
+    } finally {
+      state.materialDeleteBusy = '';
+      renderAssets();
     }
   }
 
@@ -1631,7 +1686,7 @@
   function effectiveImages(item) {
     var images = [{ id: 'brand-card', url: item.final_image, kind: 'generated', label: 'Брендированная карточка' }]
       .concat((item.source_images || []).map(function (image) {
-        return { id: image.id, url: image.url, kind: 'source', label: 'Profitbase · исходная позиция ' + image.position };
+        return { id: image.id, url: image.url, kind: 'source', label: 'Исходный фид · позиция ' + image.position };
       }));
     state.imageSettings.bulk_rules.forEach(function (rule) {
       if (rule.enabled !== false && ruleMatchesSimple(item, rule)) {
@@ -1733,7 +1788,7 @@
         '" title="Физически удалить загруженный файл">Удалить файл</button>' : '';
       return '<article class="image-item"><div class="image-item-preview"><img src="' + esc(imageUrl) + '" alt="Изображение ' +
         (index + 1) + '" loading="lazy" decoding="async"><span class="image-position">' + (index + 1) + '</span><span class="image-kind">' +
-        esc(image.kind === 'generated' ? 'Feed Studio' : image.kind === 'source' ? 'Profitbase' : 'Добавлено') +
+        esc(image.kind === 'generated' ? 'Feed Studio' : image.kind === 'source' ? 'Исходный фид' : 'Добавлено') +
         '</span></div><div class="image-item-copy"><small title="' + esc(image.label) + '">' + esc(image.label) +
         '</small><div class="image-actions"><button data-image-left="' + esc(image.id) + '" ' + (index === 0 ? 'disabled' : '') +
         '>← Выше</button><button data-image-right="' + esc(image.id) + '" ' + (index === images.length - 1 ? 'disabled' : '') +
@@ -1778,7 +1833,7 @@
     var override = state.imageSettings.lot_overrides[item.id] || { hidden: [] };
     var hiddenIds = override.hidden || [];
     var hiddenImages = (item.source_images || []).map(function (image) {
-      return { id: image.id, url: image.url, label: 'Profitbase · исходная позиция ' + image.position, kind: 'source' };
+      return { id: image.id, url: image.url, label: 'Исходный фид · позиция ' + image.position, kind: 'source' };
     }).concat((override.added || []).map(function (image) {
       return { id: image.id, url: image.url, path: image.path || '', label: 'Добавлено вручную', kind: 'added' };
     })).filter(function (image) { return hiddenIds.indexOf(image.id) >= 0; });
@@ -1870,7 +1925,7 @@
 
   function descriptionTemplate(item) {
     var value = item.source_description || '';
-    var origin = 'Profitbase';
+    var origin = 'Исходный фид';
     state.parameterSettings.bulk_rules.forEach(function (rule) {
       if (rule.enabled !== false && ruleMatchesSimple(item, rule) && rule.values && rule.values[DESCRIPTION_TAG] != null) {
         value = rule.values[DESCRIPTION_TAG];
@@ -2160,11 +2215,11 @@
     var supported = supportedParameters();
     var catalogOptions = supported.filter(function (catalog) { return catalog.tag !== DESCRIPTION_TAG; }).map(function (catalog) {
       var count = tagCounts[catalog.tag] || 0;
-      return '<option value="' + esc(catalog.tag) + '">' + esc(catalog.name) + (count ? ' · уже есть в Profitbase' : '') + '</option>';
+      return '<option value="' + esc(catalog.tag) + '">' + esc(catalog.name) + (count ? ' · уже есть в исходном фиде' : '') + '</option>';
     }).join('');
     var bulkCatalogOptions = supported.map(function (catalog) {
       var count = tagCounts[catalog.tag] || 0;
-      return '<option value="' + esc(catalog.tag) + '">' + esc(catalog.name) + (count ? ' · уже есть в Profitbase' : '') + '</option>';
+      return '<option value="' + esc(catalog.tag) + '">' + esc(catalog.name) + (count ? ' · уже есть в исходном фиде' : '') + '</option>';
     }).join('');
     $('#new-parameter-tag').innerHTML = catalogOptions;
     var selectedBulkTag = $('#bulk-parameter-tag').value;
@@ -2903,7 +2958,7 @@
     var payload = { version: 1, name: name, slug: slug };
     var body = 'Запрос на создание нового объекта Feed Studio.\n\n' +
       'FEED_PROJECT_JSON_START\n' + JSON.stringify(payload, null, 2) + '\nFEED_PROJECT_JSON_END\n\n' +
-      'После создания нужно добавить закрытую ссылку Profitbase и фирменные материалы.';
+      'После создания нужно добавить закрытую ссылку на исходный фид и фирменные материалы.';
     var title = '[feed-project] Добавить ' + name;
     window.open('https://github.com/' + REPOSITORY + '/issues/new?title=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(body), '_blank', 'noopener');
     $('#project-modal').classList.add('hidden');
@@ -3239,6 +3294,7 @@
       state.imageUploadMessage = '';
       state.imageUploadTone = '';
       state.materialUploadBusy = false;
+      state.materialDeleteBusy = '';
       state.materialUploadMessage = '';
       state.materialUploadTone = '';
       state.sourceFeedStatus = null;
@@ -3313,6 +3369,7 @@
       state.sourceFeedStatus = null;
       state.sourceFeedBusy = false;
       state.materialUploadBusy = false;
+      state.materialDeleteBusy = '';
       state.materialUploadMessage = '';
       state.materialUploadTone = '';
       state.materialPreviewId = null;

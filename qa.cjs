@@ -34,6 +34,7 @@ const contentTypes = {
   const errors = [];
   let submitted = null;
   let sourceFeedSaved = null;
+  let deletedMaterial = null;
   const projectDataRequests = {};
   const accessConfig = fs.readFileSync(path.join(frontend, 'access-config.js'), 'utf8');
   const hash = accessConfig.match(/[0-9a-f]{64}/i)[0].toLowerCase();
@@ -96,10 +97,22 @@ const contentTypes = {
       return route.fulfill({ status: 200, contentType: contentTypes[path.extname(target).toLowerCase()] || 'application/octet-stream', headers: cors, body: fs.readFileSync(target) });
     }
     if (url.pathname === '/materials' && route.request().method() === 'GET') {
-      return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({ items: [{
-        id: 'mat-qa-library', name: 'Рендер из библиотеки', filename: 'uploads/mat-qa-library.webp',
-        url: 'https://assets.example.test/mat-qa-library.webp', uploaded: true, active_for: []
-      }] }) });
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({ items: [
+        {
+          id: 'mat-qa-library', name: 'Рендер из библиотеки', filename: 'uploads/mat-qa-library.webp',
+          url: 'https://assets.example.test/mat-qa-library.webp', uploaded: true, active_for: []
+        },
+        {
+          id: 'mat-qa-unused', name: 'Неиспользуемый материал', filename: 'uploads/mat-qa-unused.webp',
+          url: 'https://assets.example.test/mat-qa-unused.webp', uploaded: true, active_for: []
+        }
+      ] }) });
+    }
+    if (url.pathname === '/materials' && route.request().method() === 'DELETE') {
+      deletedMaterial = JSON.parse(route.request().postData());
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({
+        deleted: true, project: deletedMaterial.project, filename: deletedMaterial.filename
+      }) });
     }
     if (url.pathname === '/materials/upload' && route.request().method() === 'POST') {
       return route.fulfill({ status: 201, contentType: 'application/json', headers: cors, body: JSON.stringify({
@@ -160,7 +173,7 @@ const contentTypes = {
   const emptyDraftStatus = (await page.locator('#saved-state').innerText()).trim();
   const refreshButtonText = (await page.locator('#refresh-profitbase').innerText()).trim();
   const sourceStateText = (await page.locator('#feed-source-state').innerText()).trim();
-  const staleManualDateHidden = refreshButtonText === 'Обновить Profitbase' && !sourceStateText.includes('27 сент.');
+  const staleManualDateHidden = refreshButtonText === 'Обновить исходный фид' && !sourceStateText.includes('27 сент.');
   const availableProjects = await page.locator('#project-select option:not([disabled])').evaluateAll((options) => options.map((option) => ({
     slug: option.value, name: option.textContent.trim()
   })));
@@ -202,10 +215,18 @@ const contentTypes = {
   const sourceFeedSettingWorks = sourceFeedSaved?.project === 'novyy-gorizont' &&
     sourceFeedSaved?.url === 'https://profitbase.example/private-feed?token=qa-secret' &&
     (await page.locator('#source-feed-url').inputValue()) === '' &&
-    (await page.locator('#source-feed-detail').innerText()).includes('profitbase.example') &&
+    (await page.locator('#source-feed-detail').innerText()).includes('Закрытый адрес исходного фида сохранён') &&
+    !(await page.locator('#source-feed-detail').innerText()).includes('profitbase.example') &&
     !(await page.locator('#source-feed-detail').innerText()).includes('qa-secret');
   const initialCards = await page.locator('.asset-card').count();
   const activeBefore = await page.locator('.asset-status.active').count();
+  const unusedDeleteButton = page.locator('[data-delete-material="uploads/mat-qa-unused.webp"]');
+  const unusedDeleteAvailable = await unusedDeleteButton.count() === 1;
+  page.once('dialog', (dialog) => dialog.accept());
+  await unusedDeleteButton.click();
+  await page.waitForFunction(() => !document.querySelector('[data-material-file="uploads/mat-qa-unused.webp"]'));
+  const cardsAfterMaterialDelete = await page.locator('.asset-card').count();
+  const unusedMaterialDeleted = deletedMaterial?.project === 'novyy-gorizont' && deletedMaterial?.filename === 'uploads/mat-qa-unused.webp';
   if (!(await page.locator('[data-material-file="uploads/mat-qa-library.webp"]').count())) {
     console.error(JSON.stringify({ errors, body: (await page.locator('body').innerText()).slice(0, 2000) }, null, 2));
   }
@@ -224,6 +245,7 @@ const contentTypes = {
   await page.waitForFunction(() => document.querySelector('#material-upload-status')?.textContent.includes('Материал загружен'));
   const cardsAfterUpload = await page.locator('.asset-card').count();
   await page.locator('[data-use-material="logo"][data-material-file="uploads/mat-qa-new.png"]').click();
+  const selectedMaterialDeleteButtons = await page.locator('.asset-card.active [data-delete-material]').count();
   const initialPaletteCount = await page.locator('#brand-palette .palette-item').count();
   const currentPaletteMarkers = await page.locator('#brand-palette .palette-role-tags span').count();
   await page.locator('#new-brand-color').fill('#123ABC');
@@ -409,6 +431,7 @@ const contentTypes = {
   const promotionIndividualAfter = await page.locator('#promotion-individual-rules .individual-rule').count();
 
   await page.locator('[data-view="assets"]').click();
+  const visibleProfitbaseMentions = await page.locator('body').evaluate((body) => (body.innerText.match(/Profitbase/gi) || []).length);
   const materialOverlay = await page.locator('.asset-card').first().evaluate((card) => {
     const preview = card.querySelector('.asset-preview');
     const copy = card.querySelector('.asset-copy');
@@ -434,7 +457,7 @@ const contentTypes = {
   await page.waitForFunction(() => window.localStorage.getItem('feed-studio-publish-v1-novyy-gorizont'));
 
   const result = {
-    ok: errors.length === 0 && loadingIndicatorAvailable && projectSessionCacheWorks && redundantDraftCleared && emptyPublishDisabled && !emptyDraftStatus.includes('не применён') && projectSwitchingWorks && projectRefreshPersistenceWorks && sourceFeedSettingWorks && staleManualDateHidden && sourceStateText.includes('Источник проверен') && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 3 && activeBefore === 2 && selectedLibrary.some((text) => text.includes('Рендер в макете')) && cardsAfterUpload === initialCards + 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 4 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.includes('Основной') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && materialWorkspacePreviewVisible && cardOptionsDefaultOn && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.backgroundRender === 'uploads/mat-qa-library.webp' && liveMaterialPreview.showRender === 'false' && liveMaterialPreview.color === '#123ABC' && liveMaterialPreview.houseBadge === 'false' && liveMaterialPreview.decoration === 'false' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && imagePlanOptions > 1 && /^plan-[0-9a-f]{12}$/.test(selectedImagePlan) && selectedImagePlanCount > 0 && imagePlanRuleCreated && individualParameterOptions === 9 && bulkParameterOptions === 10 && bulkDescriptionShortcodeExcluded && bulkDescriptionStartsEmpty && bulkDescriptionExpandVisible && bulkDescriptionModalVisible && bulkDescriptionModalSize.width > 700 && bulkDescriptionModalSize.height >= 320 && bulkDescriptionModalShortcodeInserted && bulkDescriptionContentPreserved && bulkDescriptionEscapeCloses && descriptionEditorVisible && descriptionShortcodes >= 5 && descriptionShortcodeExcluded && addressShownFully && descriptionPreviewVisible && descriptionBlocksNormalized && descriptionFormattingPreserved && descriptionTemplateKept && descriptionResolved && roomsParameterAvailable && roomsStartsFromSource && roomsShortcodeUsesOverride && planOptions > 1 && parameterToolbarLayout.planWidth <= 270 && parameterToolbarLayout.singleRow && /^plan-[0-9a-f]{12}$/.test(selectedPlan) && selectedPlanCount > 0 && parameterIndividualBefore === 1 && parameterIndividualLabels.includes('Описание') && parameterIndividualLabels.includes('Количество комнат') && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && excludedCardMarked === 1 && submitted && submitted.version === 4 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.background_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor) && submitted.card_settings.show_key_render === false && submitted.card_settings.show_house_badge === false && submitted.card_settings.show_decoration === false,
+    ok: errors.length === 0 && loadingIndicatorAvailable && projectSessionCacheWorks && redundantDraftCleared && emptyPublishDisabled && !emptyDraftStatus.includes('не применён') && projectSwitchingWorks && projectRefreshPersistenceWorks && sourceFeedSettingWorks && staleManualDateHidden && sourceStateText.includes('Источник проверен') && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 4 && activeBefore === 2 && unusedDeleteAvailable && unusedMaterialDeleted && cardsAfterMaterialDelete === initialCards - 1 && selectedMaterialDeleteButtons === 0 && visibleProfitbaseMentions === 0 && selectedLibrary.some((text) => text.includes('Рендер в макете')) && cardsAfterUpload === initialCards && initialPaletteCount >= 4 && currentPaletteMarkers >= 4 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.includes('Основной') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && materialWorkspacePreviewVisible && cardOptionsDefaultOn && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.backgroundRender === 'uploads/mat-qa-library.webp' && liveMaterialPreview.showRender === 'false' && liveMaterialPreview.color === '#123ABC' && liveMaterialPreview.houseBadge === 'false' && liveMaterialPreview.decoration === 'false' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && imagePlanOptions > 1 && /^plan-[0-9a-f]{12}$/.test(selectedImagePlan) && selectedImagePlanCount > 0 && imagePlanRuleCreated && individualParameterOptions === 9 && bulkParameterOptions === 10 && bulkDescriptionShortcodeExcluded && bulkDescriptionStartsEmpty && bulkDescriptionExpandVisible && bulkDescriptionModalVisible && bulkDescriptionModalSize.width > 700 && bulkDescriptionModalSize.height >= 320 && bulkDescriptionModalShortcodeInserted && bulkDescriptionContentPreserved && bulkDescriptionEscapeCloses && descriptionEditorVisible && descriptionShortcodes >= 5 && descriptionShortcodeExcluded && addressShownFully && descriptionPreviewVisible && descriptionBlocksNormalized && descriptionFormattingPreserved && descriptionTemplateKept && descriptionResolved && roomsParameterAvailable && roomsStartsFromSource && roomsShortcodeUsesOverride && planOptions > 1 && parameterToolbarLayout.planWidth <= 270 && parameterToolbarLayout.singleRow && /^plan-[0-9a-f]{12}$/.test(selectedPlan) && selectedPlanCount > 0 && parameterIndividualBefore === 1 && parameterIndividualLabels.includes('Описание') && parameterIndividualLabels.includes('Количество комнат') && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && excludedCardMarked === 1 && submitted && submitted.version === 4 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.background_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor) && submitted.card_settings.show_key_render === false && submitted.card_settings.show_house_badge === false && submitted.card_settings.show_decoration === false,
     errors,
     empty_draft: {
       cleared: redundantDraftCleared,
@@ -462,6 +485,13 @@ const contentTypes = {
     initial_cards: initialCards,
     active_before: activeBefore,
     cards_after_upload: cardsAfterUpload,
+    material_delete: {
+      available: unusedDeleteAvailable,
+      deleted: unusedMaterialDeleted,
+      cards_after: cardsAfterMaterialDelete,
+      selected_delete_buttons: selectedMaterialDeleteButtons
+    },
+    visible_profitbase_mentions: visibleProfitbaseMentions,
     material_overlay: materialOverlay,
     card_options_default_on: cardOptionsDefaultOn,
     live_material_preview: liveMaterialPreview,

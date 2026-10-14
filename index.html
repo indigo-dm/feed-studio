@@ -52,7 +52,7 @@
           <span>Фиды</span><span aria-hidden="true">⌄</span>
         </button>
         <div class="feed-links-list" id="feed-links-list">
-          <a class="sidebar-link" id="source-feed-link" href="source-profitbase.xml" target="_blank" rel="noopener">Полученный фид из Profitbase ↗</a>
+          <a class="sidebar-link" id="source-feed-link" href="source-profitbase.xml" target="_blank" rel="noopener">Исходный фид ↗</a>
           <a class="sidebar-link sidebar-link-secondary" id="full-feed-link" href="feeds/novyy-gorizont/avito.xml" target="_blank" rel="noopener">Полный фид ↗</a>
           <a class="sidebar-link sidebar-link-secondary" id="pilot-feed-link" href="pilot-avito.xml" target="_blank" rel="noopener">Тестовый фид ↗</a>
         </div>
@@ -69,7 +69,7 @@
           <span class="saved-state" id="saved-state" role="status" aria-live="polite">Настройки загружены</span>
           <button class="button button-secondary review-changes-button" id="review-unsaved" type="button">Посмотреть несохранённые изменения</button>
           <div class="feed-refresh-control">
-            <button class="button button-secondary feed-refresh-button" id="refresh-profitbase" type="button" title="Получить актуальный фид выбранного объекта из Profitbase">Обновить Profitbase</button>
+            <button class="button button-secondary feed-refresh-button" id="refresh-profitbase" type="button" title="Получить актуальный исходный фид выбранного объекта">Обновить исходный фид</button>
             <span class="feed-source-state" id="feed-source-state">Источник проверяется…</span>
           </div>
           <button class="button button-secondary" id="logout-access">Выйти</button>
@@ -90,7 +90,7 @@
             <span class="notice-badge">XML</span>
           </div>
           <div class="stats-grid">
-            <article class="stat-card"><span>Квартир в Profitbase</span><strong id="stat-source">—</strong><small>актуальный источник</small></article>
+            <article class="stat-card"><span>Квартир в исходном фиде</span><strong id="stat-source">—</strong><small>актуальный источник</small></article>
             <article class="stat-card"><span>Квартир в готовом фиде</span><strong id="stat-plans">—</strong><small>брендированные объявления</small></article>
             <article class="stat-card"><span>Активных акций</span><strong id="stat-promotions">—</strong><small>правила брендирования</small></article>
             <article class="stat-card"><span>Последнее обновление</span><strong class="stat-date" id="stat-updated">—</strong><small>московское время</small></article>
@@ -126,7 +126,7 @@
 
         <section class="view" id="view-images">
           <div class="notice">
-            <div><strong>Галерея объявлений</strong><span>Здесь показана итоговая последовательность: брендированная карточка и все изображения Profitbase.</span></div>
+            <div><strong>Галерея объявлений</strong><span>Здесь показана итоговая последовательность: брендированная карточка и все изображения исходного фида.</span></div>
             <span class="notice-badge">IMAGES</span>
           </div>
           <div class="toolbar panel media-toolbar image-toolbar">
@@ -143,7 +143,7 @@
                 <div><p class="eyebrow">Отдельный лот</p><h2>Порядок изображений</h2></div>
                 <label class="compact-select"><span>Квартира</span><select id="image-lot"></select></label>
               </div>
-              <p class="helper media-helper">Стрелками меняйте порядок. Кнопка «Исключить из фида» не удаляет файл из Profitbase или хранилища: изображение просто не попадёт в новый XML для Avito, и его можно будет вернуть. Брендированную карточку можно перемещать, но нельзя исключить.</p>
+              <p class="helper media-helper">Стрелками меняйте порядок. Кнопка «Исключить из фида» не удаляет файл из исходного фида или хранилища: изображение просто не попадёт в новый XML для Avito, и его можно будет вернуть. Брендированную карточку можно перемещать, но нельзя исключить.</p>
               <div class="image-gallery" id="image-gallery"></div>
               <section class="image-upload-block">
                 <input id="image-file-input" type="file" accept="image/jpeg,image/png,image/webp" hidden>
@@ -193,7 +193,7 @@
             <span class="notice-badge">BETA</span>
           </div>
           <div class="source-tags panel">
-            <div class="panel-heading"><div><p class="eyebrow">Исходный XML</p><h2>Что уже передаёт Profitbase</h2></div><span id="source-tags-count"></span></div>
+            <div class="panel-heading"><div><p class="eyebrow">Исходный XML</p><h2>Что уже передаёт исходный фид</h2></div><span id="source-tags-count"></span></div>
             <div class="tag-cloud" id="source-tags"></div>
           </div>
           <div class="toolbar panel media-toolbar parameter-toolbar">
@@ -329,7 +329,7 @@
 
           <section class="panel source-feed-settings" aria-labelledby="source-feed-settings-title">
             <div class="source-feed-heading">
-              <div><p class="eyebrow">Источник данных</p><h2 id="source-feed-settings-title">Родительский фид Profitbase</h2></div>
+              <div><p class="eyebrow">Источник данных</p><h2 id="source-feed-settings-title">Исходный фид объекта</h2></div>
               <span class="source-feed-badge" id="source-feed-badge">Проверяем…</span>
             </div>
             <p class="helper">Закрытая ссылка хранится отдельно от материалов и не отображается после сохранения. Чтобы заменить адрес, вставьте новую ссылку целиком.</p>
@@ -382,9 +382,9 @@
   </div>
   <div class="modal-backdrop hidden" id="project-modal" role="dialog" aria-modal="true" aria-labelledby="project-modal-title">
     <div class="modal">
-      <p class="eyebrow">Новый объект Profitbase</p>
+      <p class="eyebrow">Новый объект</p>
       <h2 id="project-modal-title">Добавить ЖК</h2>
-      <p>Сначала создадим изолированную папку проекта. Закрытая ссылка Profitbase и материалы подключаются на следующем шаге.</p>
+      <p>Сначала создадим изолированную папку проекта. Закрытая ссылка на исходный фид и материалы подключаются на следующем шаге.</p>
       <div class="project-form">
         <label class="field"><span>Название объекта</span><input id="new-project-name" maxlength="80" placeholder="Например, ЖК Южный Берег"></label>
         <label class="field"><span>Системное имя</span><input id="new-project-slug" maxlength="48" placeholder="yuzhnyy-bereg"></label>
