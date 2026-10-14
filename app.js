@@ -883,7 +883,7 @@
         (state.materialSettings.logo === asset.filename ? '' : '<button class="button button-secondary button-small" data-use-material="logo" data-material-file="' + esc(asset.filename) + '">Сделать логотипом</button>') +
         (state.materialSettings.key_render === asset.filename ? '' : '<button class="button button-secondary button-small" data-use-material="key_render" data-material-file="' + esc(asset.filename) + '">Вставить в макет</button>') +
         (state.materialSettings.background_render === asset.filename ? '' : '<button class="button button-secondary button-small" data-use-material="background_render" data-material-file="' + esc(asset.filename) + '">Сделать фоном</button>') +
-        (asset.uploaded && !roles.length && !publishedRoles.length ? '<button class="button button-danger button-small" data-delete-material="' + esc(asset.filename) + '" data-material-name="' + esc(asset.name) + '"' +
+        (!roles.length && !publishedRoles.length ? '<button class="button button-danger button-small" data-delete-material="' + esc(asset.filename) + '" data-material-name="' + esc(asset.name) + '"' +
           (state.materialDeleteBusy ? ' disabled' : '') + '>' + (state.materialDeleteBusy === asset.filename ? 'Удаляем…' : 'Удалить') + '</button>' : '') : '';
       var actions = actionButtons ? '<div class="asset-footer"><div class="asset-actions">' + actionButtons + '</div></div>' : '';
       return '<article class="asset-card ' + (roles.length ? 'active' : '') + '"><div class="asset-preview">' + preview + '<div class="asset-copy"><div><strong>' +
@@ -1442,7 +1442,7 @@
       var liveItems = Array.isArray(payload.items) ? payload.items : [];
       var liveFiles = new Set(liveItems.map(function (item) { return String(item.filename || ''); }));
       state.assets.items = (state.assets.items || []).filter(function (item) {
-        return !item.uploaded || liveFiles.has(String(item.filename || ''));
+        return !item.exists || liveFiles.has(String(item.filename || ''));
       });
       mergeMaterialItems(liveItems);
     } catch (error) {
