@@ -1277,7 +1277,7 @@
     var override = imageOverride(item);
     if ((override.added || []).length >= 20) throw new Error('Для одного лота можно добавить не более 20 изображений.');
     override.added.push(image);
-    override.order = effectiveImages(item).map(function (current) { return current.id; });
+    if (override.order.length) override.order.push(image.id);
     setDirty(true);
   }
 
@@ -1704,24 +1704,31 @@
       .concat((item.source_images || []).map(function (image) {
         return { id: image.id, url: image.url, kind: 'source', label: 'Исходный фид · позиция ' + image.position };
       }));
-    state.imageSettings.bulk_rules.forEach(function (rule) {
-      if (rule.enabled !== false && ruleMatchesSimple(item, rule)) {
-        images = moveArrayItem(images, rule.from_position, rule.to_position);
-      }
-    });
     var override = state.imageSettings.lot_overrides[item.id] || { order: [], hidden: [], added: [] };
     (override.added || []).forEach(function (image) {
       images.push({ id: image.id, url: image.url, path: image.path || '', kind: 'added', label: 'Добавлено вручную' });
     });
     var hidden = override.hidden || [];
     images = images.filter(function (image) { return hidden.indexOf(image.id) < 0; });
-    var ranks = new Map((override.order || []).map(function (id, index) { return [id, index]; }));
-    var sourceRanks = new Map(images.map(function (image, index) { return [image.id, index]; }));
-    images.sort(function (left, right) {
-      var leftRank = ranks.has(left.id) ? ranks.get(left.id) : ranks.size + sourceRanks.get(left.id);
-      var rightRank = ranks.has(right.id) ? ranks.get(right.id) : ranks.size + sourceRanks.get(right.id);
-      return leftRank - rightRank;
+    var naturalIds = images.map(function (image) { return image.id; });
+    var orderedIds = (override.order || []).filter(function (id) { return naturalIds.indexOf(id) >= 0; });
+    var hasIndividualOrder = orderedIds.length > 0 && (orderedIds.length !== naturalIds.length || orderedIds.some(function (id, index) {
+      return id !== naturalIds[index];
+    }));
+    state.imageSettings.bulk_rules.forEach(function (rule) {
+      if (rule.enabled !== false && ruleMatchesSimple(item, rule)) {
+        images = moveArrayItem(images, rule.from_position, rule.to_position);
+      }
     });
+    if (hasIndividualOrder) {
+      var ranks = new Map(orderedIds.map(function (id, index) { return [id, index]; }));
+      var sourceRanks = new Map(images.map(function (image, index) { return [image.id, index]; }));
+      images.sort(function (left, right) {
+        var leftRank = ranks.has(left.id) ? ranks.get(left.id) : ranks.size + sourceRanks.get(left.id);
+        var rightRank = ranks.has(right.id) ? ranks.get(right.id) : ranks.size + sourceRanks.get(right.id);
+        return leftRank - rightRank;
+      });
+    }
     return images;
   }
 
