@@ -20,8 +20,8 @@
     publishedParameterSettings: { lot_values: {}, bulk_rules: [] },
     materialSettings: { logo: '', key_render: '', background_render: '', primary_color: '', background_color: '', text_color: '', subtitle_color: '', palette: [] },
     publishedMaterialSettings: { logo: '', key_render: '', background_render: '', primary_color: '', background_color: '', text_color: '', subtitle_color: '', palette: [] },
-    cardSettings: { show_key_render: true, show_house_badge: true, show_decoration: true },
-    publishedCardSettings: { show_key_render: true, show_house_badge: true, show_decoration: true },
+    cardSettings: { show_key_render: true, show_house_badge: true, show_decoration: true, show_logo_panel: false },
+    publishedCardSettings: { show_key_render: true, show_house_badge: true, show_decoration: true, show_logo_panel: false },
     excludedLotIds: [],
     publishedExcludedLotIds: [],
     changeReviewItems: [],
@@ -76,6 +76,11 @@
     return /^#[0-9A-F]{6}$/.test(candidate) ? candidate : '';
   };
   var clone = function (value) { return JSON.parse(JSON.stringify(value)); };
+  var isStudioRoom = function (value) { return String(value || '').trim().toLocaleLowerCase('ru-RU') === 'студия'; };
+  var roomShortLabel = function (value) { return isStudioRoom(value) ? 'Студия' : String(value || '') + 'к'; };
+  var roomApartmentLabel = function (value) { return isStudioRoom(value) ? 'Квартира-студия' : String(value || '') + '-комнатная'; };
+  var roomCardTitle = function (value) { return isStudioRoom(value) ? 'КВАРТИРА-СТУДИЯ' : String(value || '') + '-КОМНАТНАЯ КВАРТИРА'; };
+  var roomSortValue = function (value) { return isStudioRoom(value) ? 0 : Number(value) || 999; };
   var cacheVersion = function () {
     return state.registry && state.registry.build_id ? String(state.registry.build_id) : 'development';
   };
@@ -331,7 +336,8 @@
     return {
       show_key_render: source.show_key_render !== false,
       show_house_badge: source.show_house_badge !== false,
-      show_decoration: source.show_decoration !== false
+      show_decoration: source.show_decoration !== false,
+      show_logo_panel: source.show_logo_panel === true
     };
   }
 
@@ -508,7 +514,7 @@
 
   function lotChangeLabel(lotId) {
     var item = state.inventory && state.inventory.items.find(function (lot) { return String(lot.id) === String(lotId); });
-    return item ? item.house + ' · ' + item.rooms + 'к · ID ' + item.id : 'ID ' + lotId;
+    return item ? item.house + ' · ' + roomShortLabel(item.rooms) + ' · ID ' + item.id : 'ID ' + lotId;
   }
 
   function commonOrderChanged(current, published) {
@@ -598,6 +604,7 @@
       if (state.cardSettings.show_key_render !== state.publishedCardSettings.show_key_render) cardParts.push('рендер в макете');
       if (state.cardSettings.show_house_badge !== state.publishedCardSettings.show_house_badge) cardParts.push('плашка дома');
       if (state.cardSettings.show_decoration !== state.publishedCardSettings.show_decoration) cardParts.push('тип отделки');
+      if (state.cardSettings.show_logo_panel !== state.publishedCardSettings.show_logo_panel) cardParts.push('подложка логотипа');
       add('card-settings', 'project', 'Макет карточки', 'Элементы брендированной карточки', 'Изменено: ' + cardParts.join(', ') + '.');
     }
 
@@ -774,7 +781,7 @@
 
   function lotCaption(id) {
     var item = lotById(id);
-    return item ? item.house + ' · ' + item.rooms + 'к · ' + formatArea(item.area) : 'Нет в текущем исходном фиде';
+    return item ? item.house + ' · ' + roomShortLabel(item.rooms) + ' · ' + formatArea(item.area) : 'Нет в текущем исходном фиде';
   }
 
   function openIndividualLot(section, id) {
@@ -960,6 +967,7 @@
     $('#show-key-render').checked = state.cardSettings.show_key_render;
     $('#show-house-badge').checked = state.cardSettings.show_house_badge;
     $('#show-decoration').checked = state.cardSettings.show_decoration;
+    $('#show-logo-panel').checked = state.cardSettings.show_logo_panel;
     renderMaterialUploadState();
     renderMaterialWorkspacePreview();
   }
@@ -1133,8 +1141,8 @@
         return '<option value="' + esc(entry[0]) + '">' + esc(entry[1]) + '</option>';
       }).join('');
     var roomOptions = '<option value="">Любая</option>' +
-      Array.from(rooms).sort().map(function (room) {
-        return '<option value="' + esc(room) + '">' + esc(room) + '-комнатная</option>';
+      Array.from(rooms).sort(function (left, right) { return roomSortValue(left) - roomSortValue(right); }).map(function (room) {
+        return '<option value="' + esc(room) + '">' + esc(roomApartmentLabel(room)) + '</option>';
       }).join('');
     var floorOptions = '<option value="">Любой</option>' +
       Array.from(floors).sort(function (left, right) { return Number(left) - Number(right); }).map(function (floor) {
@@ -1142,10 +1150,10 @@
       }).join('');
     var planOptions = '<option value="">Любая</option>' +
       Array.from(plans.entries()).sort(function (left, right) {
-        return Number(left[1].rooms) - Number(right[1].rooms) || Number(left[1].area) - Number(right[1].area);
+        return roomSortValue(left[1].rooms) - roomSortValue(right[1].rooms) || Number(left[1].area) - Number(right[1].area);
       }).map(function (entry) {
         var plan = entry[1];
-        return '<option value="' + esc(entry[0]) + '">' + esc(plan.rooms + 'к · ' + formatArea(plan.area) + ' · ' + plan.count + ' кв.') + '</option>';
+        return '<option value="' + esc(entry[0]) + '">' + esc(roomShortLabel(plan.rooms) + ' · ' + formatArea(plan.area) + ' · ' + plan.count + ' кв.') + '</option>';
       }).join('');
     $('#filter-house').innerHTML = houseOptions;
     $('#image-filter-house').innerHTML = houseOptions;
@@ -1159,7 +1167,7 @@
     $('#image-filter-plan').innerHTML = planOptions;
     $('#parameter-filter-plan').innerHTML = planOptions;
     var lotOptions = state.inventory.items.map(function (item) {
-      return '<option value="' + esc(item.id) + '">' + esc(item.house + ' · ' + item.rooms + 'к · ' + formatArea(item.area)) + '</option>';
+      return '<option value="' + esc(item.id) + '">' + esc(item.house + ' · ' + roomShortLabel(item.rooms) + ' · ' + formatArea(item.area)) + '</option>';
     }).join('');
     $('#preview-lot').innerHTML = lotOptions;
     $('#image-lot').innerHTML = lotOptions;
@@ -1176,9 +1184,9 @@
     var rule = appliedRule(item);
     var excluded = state.excludedLotIds.indexOf(String(item.id)) >= 0;
     return '<article class="lot-card ' + (excluded ? 'excluded' : '') + '">' +
-      '<div class="lot-image"><img src="' + esc(versionedUrl(item.thumbnail || item.image)) + '" alt="' + esc(item.house + ', ' + item.rooms + '-комнатная') + '" loading="lazy" decoding="async" width="480" height="360">' +
+      '<div class="lot-image"><img src="' + esc(versionedUrl(item.thumbnail || item.image)) + '" alt="' + esc(item.house + ', ' + roomApartmentLabel(item.rooms)) + '" loading="lazy" decoding="async" width="480" height="360">' +
       '<span class="lot-badge">' + (excluded ? 'Исключён из фида' : esc(item.house) + (rule ? ' · акция' : '')) + '</span></div>' +
-      '<div class="lot-body"><div class="lot-title"><strong>' + esc(item.rooms) + '-комнатная · ' + esc(formatArea(item.area)) + '</strong><span>ID ' + esc(item.id) + '</span></div>' +
+      '<div class="lot-body"><div class="lot-title"><strong>' + esc(roomApartmentLabel(item.rooms)) + ' · ' + esc(formatArea(item.area)) + '</strong><span>ID ' + esc(item.id) + '</span></div>' +
       '<div class="lot-meta">' + esc(formatPrice(item.price)) + ' · этаж ' + esc(item.floor) + '/' + esc(item.floors) + '</div>' +
       '<div class="lot-actions"><button data-preview="' + esc(item.id) + '">Предпросмотр</button>' +
       '<button class="lot-feed-toggle ' + (excluded ? 'restore' : '') + '" data-toggle-feed-lot="' + esc(item.id) + '">' +
@@ -1769,7 +1777,7 @@
     $('#image-filter-count').textContent = filtered.length;
     if (!filtered.some(function (item) { return item.id === state.imageLotId; })) state.imageLotId = filtered[0] ? filtered[0].id : null;
     $('#image-lot').innerHTML = filtered.map(function (item) {
-      return '<option value="' + esc(item.id) + '">' + esc(item.house + ' · ' + item.rooms + 'к · ID ' + item.id) + '</option>';
+      return '<option value="' + esc(item.id) + '">' + esc(item.house + ' · ' + roomShortLabel(item.rooms) + ' · ID ' + item.id) + '</option>';
     }).join('');
     $('#image-lot').value = state.imageLotId || '';
     var item = state.inventory.items.find(function (lot) { return lot.id === state.imageLotId; });
@@ -2208,7 +2216,7 @@
     $('#parameter-filter-count').textContent = filtered.length;
     if (!filtered.some(function (item) { return item.id === state.parameterLotId; })) state.parameterLotId = filtered[0] ? filtered[0].id : null;
     $('#parameter-lot').innerHTML = filtered.map(function (item) {
-      return '<option value="' + esc(item.id) + '">' + esc(item.house + ' · ' + item.rooms + 'к · ID ' + item.id) + '</option>';
+      return '<option value="' + esc(item.id) + '">' + esc(item.house + ' · ' + roomShortLabel(item.rooms) + ' · ID ' + item.id) + '</option>';
     }).join('');
     $('#parameter-lot').value = state.parameterLotId || '';
     var item = state.inventory.items.find(function (lot) { return lot.id === state.parameterLotId; });
@@ -2387,7 +2395,7 @@
       finalMatches.length + '</strong><span> из ' + groupMatches.length + ' после исключений</span></div></div>' +
       '<div class="match-list">' + (groupMatches.length ? groupMatches.map(function (item) {
         var excluded = rule.exclude_ids.indexOf(String(item.id)) >= 0;
-        return '<div class="match-item"><div><strong>' + esc(item.house + ' · ' + item.rooms + 'к · ' + formatArea(item.area)) +
+        return '<div class="match-item"><div><strong>' + esc(item.house + ' · ' + roomShortLabel(item.rooms) + ' · ' + formatArea(item.area)) +
           '</strong><small>ID ' + esc(item.id) + '</small></div><button class="exclude-button ' + (excluded ? 'excluded' : '') +
           '" data-exclude="' + esc(item.id) + '">' + (excluded ? 'Вернуть' : 'Исключить') + '</button></div>';
       }).join('') : '<div class="empty-state">Нет подходящих квартир.</div>') + '</div></div>';
@@ -2447,7 +2455,9 @@
     state.previewId = item.id;
     $('#preview-lot').value = item.id;
     renderMaterialPreview(item);
-    $('#preview-title').textContent = item.rooms + '-комнатная, ' + formatArea(item.area);
+    var previewValues = effectiveParameters(item);
+    var previewRooms = previewValues.Rooms != null ? previewValues.Rooms : item.rooms;
+    $('#preview-title').textContent = roomApartmentLabel(previewRooms) + ', ' + formatArea(item.area);
     $('#preview-details').innerHTML =
       '<div><dt>Дом</dt><dd>' + esc(item.house) + '</dd></div><div><dt>ID</dt><dd>' + esc(item.id) + '</dd></div>' +
       '<div><dt>Цена</dt><dd>' + esc(formatPrice(item.price)) + '</dd></div><div><dt>Этаж</dt><dd>' + esc(item.floor + '/' + item.floors) + '</dd></div>';
@@ -2481,7 +2491,8 @@
       subtitle_color: normalizeHexColor(source.subtitle_color),
       show_key_render: cardSource.show_key_render,
       show_house_badge: cardSource.show_house_badge,
-      show_decoration: cardSource.show_decoration
+      show_decoration: cardSource.show_decoration,
+      show_logo_panel: cardSource.show_logo_panel
     };
   }
 
@@ -2576,7 +2587,13 @@
       context.fillRect(0, 0, 1200, 900);
     }
 
-    drawContained(context, loaded[0], 56, 54, 350, 111, 2);
+    if (state.cardSettings.show_logo_panel) {
+      context.fillStyle = '#FFFFFF';
+      context.beginPath();
+      context.roundRect(56, 54, 350, 111, 14);
+      context.fill();
+    }
+    drawContained(context, loaded[0], 56, 54, 350, 111, state.cardSettings.show_logo_panel ? 18 : 2);
     if (state.cardSettings.show_key_render) {
       context.strokeStyle = primary;
       context.lineWidth = 2;
@@ -2589,7 +2606,9 @@
       context.fillRect(56, 180, 145, 42);
       canvasText(context, String(item.house || '').toUpperCase(), 74, 208, '700 19px Manrope, Arial', textColor);
     }
-    canvasText(context, String(item.rooms || '') + '-КОМНАТНАЯ КВАРТИРА', 56, 696, '800 28px Manrope, Arial', textColor);
+    var parameterValues = effectiveParameters(item);
+    var effectiveRooms = parameterValues.Rooms != null ? parameterValues.Rooms : item.rooms;
+    canvasText(context, roomCardTitle(effectiveRooms), 56, 696, '800 28px Manrope, Arial', textColor);
     if (state.cardSettings.show_decoration) {
       canvasText(context, item.decoration || 'Без отделки', 56, 732, '500 18px Manrope, Arial', subtitleColor);
     }
@@ -2603,11 +2622,11 @@
     context.fillStyle = '#DFE5E3';
     context.fillRect(614, 698, 500, 1);
     var centers = [690, 860, 1030];
-    var labels = ['КОМНАТ', 'ПЛОЩАДЬ', 'ЭТАЖ'];
-    var values = [String(item.rooms || ''), formatArea(item.area), String(item.floor || '') + '/' + String(item.floors || '')];
+    var labels = [isStudioRoom(effectiveRooms) ? 'ТИП' : 'КОМНАТ', 'ПЛОЩАДЬ', 'ЭТАЖ'];
+    var values = [String(effectiveRooms || ''), formatArea(item.area), String(item.floor || '') + '/' + String(item.floors || '')];
     centers.forEach(function (center, index) {
       canvasText(context, labels[index], center, 758, '600 16px Manrope, Arial', subtitleColor, 'center');
-      canvasText(context, values[index], center, 812, '800 38px Manrope, Arial', primary, 'center');
+      canvasText(context, values[index], center, 812, index === 0 && isStudioRoom(effectiveRooms) ? '800 25px Manrope, Arial' : '800 38px Manrope, Arial', primary, 'center');
     });
     context.fillStyle = '#DFE5E3';
     context.fillRect(775, 730, 1, 84);
@@ -2636,7 +2655,7 @@
     state.materialPreviewId = selected.id;
     select.disabled = false;
     select.innerHTML = items.map(function (item) {
-      return '<option value="' + esc(item.id) + '">' + esc(item.house + ' · ' + item.rooms + 'к · ' + formatArea(item.area)) + '</option>';
+      return '<option value="' + esc(item.id) + '">' + esc(item.house + ' · ' + roomShortLabel(item.rooms) + ' · ' + formatArea(item.area)) + '</option>';
     }).join('');
     select.value = selected.id;
     empty.classList.add('hidden');
@@ -2649,6 +2668,7 @@
     canvas.dataset.textColor = normalizeHexColor(state.materialSettings.text_color);
     canvas.dataset.subtitleColor = normalizeHexColor(state.materialSettings.subtitle_color);
     canvas.dataset.showRender = String(state.cardSettings.show_key_render);
+    canvas.dataset.logoPanel = String(state.cardSettings.show_logo_panel);
     drawMaterialPreview(canvas, selected, workspaceMaterialPreviewToken);
   }
 
@@ -2676,6 +2696,7 @@
     canvas.dataset.textColor = normalizeHexColor(state.materialSettings.text_color);
     canvas.dataset.subtitleColor = normalizeHexColor(state.materialSettings.subtitle_color);
     canvas.dataset.showRender = String(state.cardSettings.show_key_render);
+    canvas.dataset.logoPanel = String(state.cardSettings.show_logo_panel);
     canvas.dataset.houseBadge = String(state.cardSettings.show_house_badge);
     canvas.dataset.decoration = String(state.cardSettings.show_decoration);
     drawMaterialPreview(canvas, item, token);
@@ -2860,7 +2881,7 @@
       '<strong>' + state.excludedLotIds.length + ' лотов исключено из результирующего XML.</strong><br>' +
       'Логотип: <strong>' + esc(state.materialSettings.logo) + '</strong><br>Рендер в макете: <strong>' + esc(state.materialSettings.key_render) + '</strong>; фон: <strong>' + esc(state.materialSettings.background_render || 'без изображения') + '</strong>.<br>' +
       'Цвета — основной: <strong>' + esc(state.materialSettings.primary_color) + '</strong>, фон: <strong>' + esc(state.materialSettings.background_color) + '</strong>, текст: <strong>' + esc(state.materialSettings.text_color) + '</strong>, подзаголовки: <strong>' + esc(state.materialSettings.subtitle_color) + '</strong>.<br>' +
-      'Рендер в макете: <strong>' + (state.cardSettings.show_key_render ? 'показывается' : 'скрыт') + '</strong>; плашка дома: <strong>' + (state.cardSettings.show_house_badge ? 'показывается' : 'скрыта') + '</strong>; тип отделки: <strong>' + (state.cardSettings.show_decoration ? 'показывается' : 'скрыт') + '</strong>.' +
+      'Рендер в макете: <strong>' + (state.cardSettings.show_key_render ? 'показывается' : 'скрыт') + '</strong>; плашка дома: <strong>' + (state.cardSettings.show_house_badge ? 'показывается' : 'скрыта') + '</strong>; тип отделки: <strong>' + (state.cardSettings.show_decoration ? 'показывается' : 'скрыт') + '</strong>; подложка логотипа: <strong>' + (state.cardSettings.show_logo_panel ? 'включена' : 'выключена') + '</strong>.' +
       (state.pendingUploadDeletions.length ? '<br><strong>' + state.pendingUploadDeletions.length + ' загруженных файлов будут физически удалены после публикации.</strong>' : '');
     $('#publish-modal').classList.remove('hidden');
   }
@@ -3142,6 +3163,12 @@
     });
     $('#show-decoration').addEventListener('change', function (event) {
       state.cardSettings.show_decoration = event.target.checked;
+      setDirty(true);
+      renderAssets();
+      renderPreview();
+    });
+    $('#show-logo-panel').addEventListener('change', function (event) {
+      state.cardSettings.show_logo_panel = event.target.checked;
       setDirty(true);
       renderAssets();
       renderPreview();
