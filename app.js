@@ -1020,14 +1020,17 @@
         var applied = publishedAppliedRule(item);
         return applied && String(applied.id) === String(rule.id);
       });
+      var enabled = rule.enabled !== false;
+      var presentation = ruleApplicationPresentation(enabled, appliedItems.length);
       var facts = [
         ['Текст на карточке', [rule.label, rule.text].filter(Boolean).join(' · ') || 'Не задан'],
         ['Фактически получают акцию', apartmentCountLabel(appliedItems.length)]
       ].concat(savedScopeFacts(rule, matchingItems));
+      if (presentation.tone === 'warning') facts.unshift(['Состояние', 'Условия правила больше не соответствуют текущему исходному фиду']);
       if (rule.starts_at || rule.ends_at) facts.push(['Период', (rule.starts_at || 'без даты') + ' — ' + (rule.ends_at || 'без даты')]);
       add('published-promotion::' + rule.id, 'Акции', rule.name || 'Правило акции',
-        rule.enabled ? apartmentCountLabel(appliedItems.length) + ' получают эту акцию' : 'Правило сохранено, но выключено и не влияет на фид',
-        rule.enabled ? 'Активно' : 'Выключено', rule.enabled ? '' : 'inactive', facts);
+        enabled ? (presentation.tone === 'warning' ? 'Не применяется · 0 квартир получают эту акцию' : apartmentCountLabel(appliedItems.length) + ' получают эту акцию') : 'Правило сохранено, но выключено и не влияет на фид',
+        presentation.status, presentation.tone, facts);
     });
 
     Object.keys(state.publishedImageSettings.lot_overrides || {}).forEach(function (lotId) {
@@ -1037,10 +1040,12 @@
     (state.publishedImageSettings.bulk_rules || []).forEach(function (rule) {
       var matchingItems = state.inventory.items.filter(function (item) { return ruleMatchesSimple(item, rule); });
       var enabled = rule.enabled !== false;
+      var presentation = ruleApplicationPresentation(enabled, matchingItems.length);
+      var facts = [['Действие', 'Переместить изображение с позиции ' + rule.from_position + ' на позицию ' + rule.to_position]].concat(savedScopeFacts(rule, matchingItems));
+      if (presentation.tone === 'warning') facts.unshift(['Состояние', 'Условия правила больше не соответствуют текущему исходному фиду']);
       add('published-image-bulk::' + rule.id, 'Изображения', rule.name || 'Массовое правило изображений',
-        enabled ? 'Позиция ' + rule.from_position + ' → ' + rule.to_position + ' · ' + apartmentCountLabel(matchingItems.length) : 'Правило сохранено, но выключено',
-        enabled ? 'Активно' : 'Выключено', enabled ? '' : 'inactive',
-        [['Действие', 'Переместить изображение с позиции ' + rule.from_position + ' на позицию ' + rule.to_position]].concat(savedScopeFacts(rule, matchingItems)));
+        enabled ? (presentation.tone === 'warning' ? 'Не применяется · 0 квартир' : 'Позиция ' + rule.from_position + ' → ' + rule.to_position + ' · ' + apartmentCountLabel(matchingItems.length)) : 'Правило сохранено, но выключено',
+        presentation.status, presentation.tone, facts);
     });
 
     Object.keys(state.publishedParameterSettings.lot_values || {}).forEach(function (lotId) {
@@ -1062,15 +1067,17 @@
     (state.publishedParameterSettings.bulk_rules || []).forEach(function (rule) {
       var matchingItems = state.inventory.items.filter(function (item) { return ruleMatchesSimple(item, rule); });
       var enabled = rule.enabled !== false;
+      var presentation = ruleApplicationPresentation(enabled, matchingItems.length);
       var facts = Object.keys(rule.values || {}).map(function (tag) {
         var catalog = parameterByTag(tag) || { name: tag };
         return [catalog.name, savedValueText(rule.values[tag], tag)];
       }).concat(savedScopeFacts(rule, matchingItems));
+      if (presentation.tone === 'warning') facts.unshift(['Состояние', 'Условия правила больше не соответствуют текущему исходному фиду']);
       add('published-parameter-bulk::' + rule.id, 'Параметры', rule.name || 'Массовое правило параметров',
-        enabled ? apartmentCountLabel(matchingItems.length) + ' · ' + Object.keys(rule.values || {}).map(function (tag) {
+        enabled ? (presentation.tone === 'warning' ? 'Не применяется · 0 квартир · ' : apartmentCountLabel(matchingItems.length) + ' · ') + Object.keys(rule.values || {}).map(function (tag) {
           return (parameterByTag(tag) || { name: tag }).name;
         }).join(', ') : 'Правило сохранено, но выключено',
-        enabled ? 'Активно' : 'Выключено', enabled ? '' : 'inactive', facts);
+        presentation.status, presentation.tone, facts);
     });
 
     if (state.publishedExcludedLotIds.length) {
@@ -2275,6 +2282,12 @@
     return count + ' квартир';
   }
 
+  function ruleApplicationPresentation(enabled, matchingCount) {
+    if (!enabled) return { status: 'Выключено', tone: 'inactive' };
+    if (!matchingCount) return { status: 'Не применяется', tone: 'warning' };
+    return { status: 'Активно', tone: '' };
+  }
+
   function compactList(values, limit) {
     var list = (values || []).map(String);
     var shown = list.slice(0, limit || 6);
@@ -2317,7 +2330,8 @@
   }
 
   function bulkRuleCard(rule, matchingItems, summary, action, deleteAttribute) {
-    return '<div class="bulk-rule">' +
+    var presentation = ruleApplicationPresentation(rule.enabled !== false, matchingItems.length);
+    return '<div class="bulk-rule ' + esc(presentation.tone) + '">' +
       '<details class="bulk-rule-details" data-bulk-rule-details="' + esc(rule.id) + '"><summary>' +
       '<span class="bulk-rule-summary-copy"><strong>' + esc(rule.name) + '</strong><small>' + esc(summary) + '</small></span>' +
       '<span class="bulk-rule-toggle"><span class="bulk-rule-more">Подробнее</span><span class="bulk-rule-less">Свернуть</span></span>' +
@@ -2329,7 +2343,7 @@
   function renderImageBulkRules() {
     $('#image-bulk-rules').innerHTML = state.imageSettings.bulk_rules.length ? state.imageSettings.bulk_rules.map(function (rule) {
       var matchingItems = state.inventory.items.filter(function (item) { return ruleMatchesSimple(item, rule); });
-      var summary = apartmentCountLabel(matchingItems.length) + ' · позиция ' + rule.from_position + ' → ' + rule.to_position;
+      var summary = (rule.enabled !== false && !matchingItems.length ? 'Не применяется · 0 квартир' : apartmentCountLabel(matchingItems.length)) + ' · позиция ' + rule.from_position + ' → ' + rule.to_position;
       var action = 'Переместить изображение с позиции ' + rule.from_position + ' на позицию ' + rule.to_position + '.';
       return bulkRuleCard(rule, matchingItems, summary, action, 'data-delete-image-rule');
     }).join('') : '<p class="helper">Массовых правил пока нет.</p>';
@@ -2840,7 +2854,8 @@
         return catalog.name + ': ' + String(value == null ? '' : value);
       });
       var labels = Object.keys(rule.values || {}).map(function (tag) { return (parameterByTag(tag) || { name: tag }).name; }).join(', ');
-      return bulkRuleCard(rule, matchingItems, apartmentCountLabel(matchingItems.length) + ' · ' + labels,
+      var summary = (rule.enabled !== false && !matchingItems.length ? 'Не применяется · 0 квартир' : apartmentCountLabel(matchingItems.length)) + ' · ' + labels;
+      return bulkRuleCard(rule, matchingItems, summary,
         actions.join('; ') + '.', 'data-delete-parameter-rule');
     }).join('') : '<p class="helper">Массовых правил пока нет.</p>';
     $$('[data-delete-parameter-rule]', $('#parameter-bulk-rules')).forEach(function (button) {
