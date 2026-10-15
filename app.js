@@ -176,6 +176,7 @@
     }).format(date);
   };
   var DESCRIPTION_TAG = 'Description';
+  var ROOM_PARAMETER_VALUES = ['Студия', '1', '2', '3', '4', '5'];
   var DESCRIPTION_TAGS = ['P', 'BR', 'STRONG', 'EM', 'UL', 'OL', 'LI'];
   var shortcodeLabels = {
     Id: 'ID лота', NewDevelopmentId: 'ID новостройки', Rooms: 'Комнат', Square: 'Площадь',
@@ -1728,14 +1729,72 @@
     return state.inventory.items.filter(function (item) { return itemMatchesFilters(item, state.imageFilters); });
   }
 
+  function apartmentCountLabel(count) {
+    var value = Math.abs(Number(count)) % 100;
+    var last = value % 10;
+    if (value > 10 && value < 20) return count + ' квартир';
+    if (last === 1) return count + ' квартира';
+    if (last > 1 && last < 5) return count + ' квартиры';
+    return count + ' квартир';
+  }
+
+  function compactList(values, limit) {
+    var list = (values || []).map(String);
+    var shown = list.slice(0, limit || 6);
+    return shown.join(', ') + (list.length > shown.length ? ' · ещё ' + (list.length - shown.length) : '');
+  }
+
+  function rulePlanLabel(planId) {
+    var matches = state.inventory.items.filter(function (item) { return String(item.plan_id || '') === String(planId); });
+    var item = matches[0];
+    if (!item) return String(planId);
+    return roomShortLabel(effectiveRoomsForItem(item)) + ' · ' + formatArea(item.area) + ' · ' + apartmentCountLabel(matches.length);
+  }
+
+  function ruleScopeRows(rule, matchingItems) {
+    var houses = (rule.house_ids || []).map(function (houseId) {
+      var item = state.inventory.items.find(function (lot) { return String(lot.house_id) === String(houseId); });
+      return item ? item.house : houseId;
+    });
+    var rooms = (rule.rooms || []).map(roomApartmentLabel);
+    var floors = (rule.floors || []).map(String);
+    var plans = (rule.plan_ids || []).map(rulePlanLabel);
+    var includeIds = (rule.include_ids || []).map(String);
+    var excludeIds = (rule.exclude_ids || []).map(String);
+    var areas = [];
+    if (rule.area_min != null) areas.push('от ' + formatArea(rule.area_min));
+    if (rule.area_max != null) areas.push('до ' + formatArea(rule.area_max));
+    var rows = [
+      ['Дом', houses.length ? houses.join(', ') : 'Все дома'],
+      ['Комнатность', rooms.length ? rooms.join(', ') : 'Любая'],
+      ['Этаж', floors.length ? floors.join(', ') : 'Любой'],
+      ['Планировка', plans.length ? plans.join('; ') : 'Любая'],
+      ['Площадь', areas.length ? areas.join(' ') : 'Любая'],
+      ['Выбор по ID', includeIds.length ? compactList(includeIds, 8) : 'Без ограничения']
+    ];
+    if (excludeIds.length) rows.push(['Исключены ID', compactList(excludeIds, 8)]);
+    rows.push(['Подходящие лоты', matchingItems.length ? compactList(matchingItems.map(function (item) { return item.id; }), 8) : 'Нет']);
+    return rows.map(function (row) {
+      return '<div class="bulk-rule-scope-row"><dt>' + esc(row[0]) + '</dt><dd>' + esc(row[1]) + '</dd></div>';
+    }).join('');
+  }
+
+  function bulkRuleCard(rule, matchingItems, summary, action, deleteAttribute) {
+    return '<div class="bulk-rule">' +
+      '<details class="bulk-rule-details" data-bulk-rule-details="' + esc(rule.id) + '"><summary>' +
+      '<span class="bulk-rule-summary-copy"><strong>' + esc(rule.name) + '</strong><small>' + esc(summary) + '</small></span>' +
+      '<span class="bulk-rule-toggle"><span class="bulk-rule-more">Подробнее</span><span class="bulk-rule-less">Свернуть</span></span>' +
+      '</summary><div class="bulk-rule-expanded"><dl class="bulk-rule-scope" data-bulk-rule-scope>' + ruleScopeRows(rule, matchingItems) +
+      '</dl><div class="bulk-rule-action"><span>Действие</span><strong data-bulk-rule-action>' + esc(action) + '</strong></div></div></details>' +
+      '<button class="bulk-rule-delete" ' + deleteAttribute + '="' + esc(rule.id) + '" aria-label="Удалить правило">×</button></div>';
+  }
+
   function renderImageBulkRules() {
     $('#image-bulk-rules').innerHTML = state.imageSettings.bulk_rules.length ? state.imageSettings.bulk_rules.map(function (rule) {
-      var count = state.inventory.items.filter(function (item) { return ruleMatchesSimple(item, rule); }).length;
-      var floorLabel = (rule.floors || []).length ? ' · этаж ' + rule.floors.join(', ') : '';
-      var planLabel = (rule.plan_ids || []).length ? ' · выбранная планировка' : '';
-      return '<div class="bulk-rule"><div><strong>' + esc(rule.name) + '</strong><small>' + count +
-        ' квартир' + esc(floorLabel + planLabel) + ' · ' + esc(rule.from_position) + ' → ' + esc(rule.to_position) + '</small></div><button data-delete-image-rule="' +
-        esc(rule.id) + '" aria-label="Удалить правило">×</button></div>';
+      var matchingItems = state.inventory.items.filter(function (item) { return ruleMatchesSimple(item, rule); });
+      var summary = apartmentCountLabel(matchingItems.length) + ' · позиция ' + rule.from_position + ' → ' + rule.to_position;
+      var action = 'Переместить изображение с позиции ' + rule.from_position + ' на позицию ' + rule.to_position + '.';
+      return bulkRuleCard(rule, matchingItems, summary, action, 'data-delete-image-rule');
     }).join('') : '<p class="helper">Массовых правил пока нет.</p>';
     $$('[data-delete-image-rule]', $('#image-bulk-rules')).forEach(function (button) {
       button.addEventListener('click', function () {
@@ -2089,11 +2148,16 @@
   }
 
   function supportedParameters() {
-    return (state.inventory.parameter_catalog || []).filter(function (item) { return item.supported; });
+    return (state.inventory.parameter_catalog || []).filter(function (item) { return item.supported; }).map(normalizeParameterCatalogItem);
+  }
+
+  function normalizeParameterCatalogItem(item) {
+    if (!item || item.tag !== 'Rooms') return item;
+    return Object.assign({}, item, { kind: 'select', values: ROOM_PARAMETER_VALUES.slice() });
   }
 
   function parameterByTag(tag) {
-    return (state.inventory.parameter_catalog || []).find(function (item) { return item.tag === tag; });
+    return normalizeParameterCatalogItem((state.inventory.parameter_catalog || []).find(function (item) { return item.tag === tag; }));
   }
 
   function initialParameterValue(catalog, item) {
@@ -2167,12 +2231,17 @@
 
   function renderParameterBulkRules() {
     $('#parameter-bulk-rules').innerHTML = state.parameterSettings.bulk_rules.length ? state.parameterSettings.bulk_rules.map(function (rule) {
-      var count = state.inventory.items.filter(function (item) { return ruleMatchesSimple(item, rule); }).length;
+      var matchingItems = state.inventory.items.filter(function (item) { return ruleMatchesSimple(item, rule); });
+      var actions = Object.keys(rule.values || {}).map(function (tag) {
+        var catalog = parameterByTag(tag) || { name: tag };
+        var value = rule.values[tag];
+        if (catalog.kind === 'richtext') return catalog.name + ': задан новый текст';
+        if (Array.isArray(value)) return catalog.name + ': ' + value.join(', ');
+        return catalog.name + ': ' + String(value == null ? '' : value);
+      });
       var labels = Object.keys(rule.values || {}).map(function (tag) { return (parameterByTag(tag) || { name: tag }).name; }).join(', ');
-      var floorLabel = (rule.floors || []).length ? ' · этаж ' + rule.floors.join(', ') : '';
-      var planLabel = (rule.plan_ids || []).length ? ' · выбранная планировка' : '';
-      return '<div class="bulk-rule"><div><strong>' + esc(rule.name) + '</strong><small>' + count + ' квартир' + esc(floorLabel + planLabel) + ' · ' + esc(labels) +
-        '</small></div><button data-delete-parameter-rule="' + esc(rule.id) + '" aria-label="Удалить правило">×</button></div>';
+      return bulkRuleCard(rule, matchingItems, apartmentCountLabel(matchingItems.length) + ' · ' + labels,
+        actions.join('; ') + '.', 'data-delete-parameter-rule');
     }).join('') : '<p class="helper">Массовых правил пока нет.</p>';
     $$('[data-delete-parameter-rule]', $('#parameter-bulk-rules')).forEach(function (button) {
       button.addEventListener('click', function () {

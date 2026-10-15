@@ -326,12 +326,26 @@ const contentTypes = {
   let selectedImagePlan = '';
   let selectedImagePlanCount = 0;
   let imagePlanRuleCreated = false;
+  let imageRuleStartsCollapsed = false;
+  let imageRuleExpanded = false;
+  let imageRuleScopeDetailed = false;
+  let imageRuleActionDetailed = false;
   if (imagePlanOptions > 1) {
     selectedImagePlan = await page.locator('#image-filter-plan option').nth(1).getAttribute('value');
     await page.locator('#image-filter-plan').selectOption(selectedImagePlan);
     selectedImagePlanCount = Number(await page.locator('#image-filter-count').innerText());
     await page.locator('#apply-image-bulk').click();
-    imagePlanRuleCreated = (await page.locator('#image-bulk-rules .bulk-rule').last().innerText()).includes('выбранная планировка');
+    const imageRule = page.locator('#image-bulk-rules .bulk-rule').last();
+    const imageRuleDetails = imageRule.locator('[data-bulk-rule-details]');
+    imagePlanRuleCreated = (await imageRule.innerText()).includes(`${selectedImagePlanCount} квартир`);
+    imageRuleStartsCollapsed = !(await imageRuleDetails.evaluate((details) => details.open));
+    await imageRuleDetails.locator('summary').click();
+    imageRuleExpanded = await imageRuleDetails.evaluate((details) => details.open);
+    const imageRuleScopeText = await imageRule.locator('[data-bulk-rule-scope]').innerText();
+    const imageRuleActionText = await imageRule.locator('[data-bulk-rule-action]').innerText();
+    imageRuleScopeDetailed = imageRuleScopeText.includes('Планировка') && imageRuleScopeText.includes('м²') &&
+      imageRuleScopeText.includes('Подходящие лоты') && imageRuleScopeText.includes('Выбор по ID');
+    imageRuleActionDetailed = imageRuleActionText.includes('Переместить изображение с позиции');
     await page.screenshot({ path: path.join(os.tmpdir(), 'feed-studio-images-plan-filter-qa.png'), fullPage: true });
     await page.locator('#image-filter-plan').selectOption('');
   }
@@ -365,6 +379,19 @@ const contentTypes = {
   await page.keyboard.press('Escape');
   const bulkDescriptionEscapeCloses = !(await page.locator('#description-modal').isVisible()) &&
     await page.locator('#bulk-parameter-value [data-rich-editor]').isVisible();
+  await page.locator('#apply-parameter-bulk').click();
+  const parameterRule = page.locator('#parameter-bulk-rules .bulk-rule').last();
+  const parameterRuleDetails = parameterRule.locator('[data-bulk-rule-details]');
+  const parameterRuleCreated = await parameterRule.count() === 1;
+  const parameterRuleStartsCollapsed = !(await parameterRuleDetails.evaluate((details) => details.open));
+  await parameterRuleDetails.locator('summary').click();
+  const parameterRuleExpanded = await parameterRuleDetails.evaluate((details) => details.open);
+  const parameterRuleScopeText = await parameterRule.locator('[data-bulk-rule-scope]').innerText();
+  const parameterRuleActionText = await parameterRule.locator('[data-bulk-rule-action]').innerText();
+  const parameterRuleScopeDetailed = parameterRuleScopeText.includes('Дом') && parameterRuleScopeText.includes('Комнатность') &&
+    parameterRuleScopeText.includes('Планировка') && parameterRuleScopeText.includes('Подходящие лоты');
+  const parameterRuleActionDetailed = parameterRuleActionText.includes('Описание: задан новый текст');
+  await parameterRule.locator('[data-delete-parameter-rule]').click();
   const descriptionEditorVisible = await page.locator('#description-editor-wrap [data-rich-editor]').isVisible();
   const descriptionShortcodes = await page.locator('#description-editor-wrap [data-description-shortcode] option').count();
   const descriptionPreviewVisible = await page.locator('#description-editor-wrap [data-description-preview]').isVisible();
@@ -432,6 +459,8 @@ const contentTypes = {
   const sourceRooms = String(parameterItem?.source_values?.Rooms || parameterItem?.rooms || '');
   const roomsStartsFromSource = await roomsInput.inputValue() === sourceRooms;
   const studioRoomAvailable = await roomsInput.locator('option[value="Студия"]').count() === 1;
+  const roomValuesLimitedToFive = await roomsInput.locator('option[value="5"]').count() === 1 &&
+    await roomsInput.locator('option[value="6"], option[value="20"]').count() === 0;
   const changedRooms = 'Студия';
   await roomsInput.selectOption(changedRooms);
   await page.locator('#description-editor-wrap [data-rich-editor]').evaluate((editor) => {
@@ -495,7 +524,7 @@ const contentTypes = {
   await page.waitForFunction(() => window.localStorage.getItem('feed-studio-publish-v1-novyy-gorizont'));
 
   const result = {
-    ok: errors.length === 0 && loadingIndicatorAvailable && projectSessionCacheWorks && redundantDraftCleared && emptyPublishDisabled && !emptyDraftStatus.includes('не применён') && projectSwitchingWorks && projectRefreshPersistenceWorks && sourceFeedSettingWorks && staleManualDateHidden && sourceStateText.includes('Источник проверен') && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 5 && activeBefore === 2 && unusedDeleteAvailable && unusedMaterialDeleted && builtInDeleteAvailable && builtInMaterialDeleted && cardsAfterMaterialDelete === initialCards - 1 && selectedMaterialDeleteButtons === 0 && visibleProfitbaseMentions === 0 && selectedLibrary.some((text) => text.includes('Рендер в макете')) && cardsAfterUpload === initialCards - 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 4 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.includes('Основной') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && materialWorkspacePreviewVisible && cardOptionsDefaultOn && logoPanelDefaultOff && logoPanelToggleWorks && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.backgroundRender === 'uploads/mat-qa-library.webp' && liveMaterialPreview.showRender === 'false' && liveMaterialPreview.color === '#123ABC' && liveMaterialPreview.houseBadge === 'false' && liveMaterialPreview.decoration === 'false' && liveMaterialPreview.logoPanel === 'false' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && imagePlanOptions > 1 && /^plan-[0-9a-f]{12}$/.test(selectedImagePlan) && selectedImagePlanCount > 0 && imagePlanRuleCreated && individualParameterOptions === 9 && bulkParameterOptions === 10 && bulkDescriptionShortcodeExcluded && bulkDescriptionStartsEmpty && bulkDescriptionExpandVisible && bulkDescriptionModalVisible && bulkDescriptionModalSize.width > 700 && bulkDescriptionModalSize.height >= 320 && bulkDescriptionModalShortcodeInserted && bulkDescriptionContentPreserved && bulkDescriptionEscapeCloses && descriptionEditorVisible && descriptionShortcodes >= 5 && descriptionShortcodeExcluded && addressShownFully && descriptionPreviewVisible && descriptionBlocksNormalized && descriptionFormattingPreserved && descriptionTemplateKept && descriptionResolved && roomsParameterAvailable && roomsStartsFromSource && studioRoomAvailable && studioRoomFilterAvailable && roomsShortcodeUsesOverride && studioFilterMatchesOverride && planOptions > 1 && parameterToolbarLayout.planWidth <= 270 && parameterToolbarLayout.singleRow && /^plan-[0-9a-f]{12}$/.test(selectedPlan) && selectedPlanCount > 0 && parameterIndividualBefore === 1 && parameterIndividualLabels.includes('Описание') && parameterIndividualLabels.includes('Количество комнат') && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && excludedCardMarked === 1 && submitted && submitted.version === 4 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.background_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor) && submitted.card_settings.show_key_render === false && submitted.card_settings.show_house_badge === false && submitted.card_settings.show_decoration === false && submitted.card_settings.show_logo_panel === false,
+    ok: errors.length === 0 && loadingIndicatorAvailable && projectSessionCacheWorks && redundantDraftCleared && emptyPublishDisabled && !emptyDraftStatus.includes('не применён') && projectSwitchingWorks && projectRefreshPersistenceWorks && sourceFeedSettingWorks && staleManualDateHidden && sourceStateText.includes('Источник проверен') && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 5 && activeBefore === 2 && unusedDeleteAvailable && unusedMaterialDeleted && builtInDeleteAvailable && builtInMaterialDeleted && cardsAfterMaterialDelete === initialCards - 1 && selectedMaterialDeleteButtons === 0 && visibleProfitbaseMentions === 0 && selectedLibrary.some((text) => text.includes('Рендер в макете')) && cardsAfterUpload === initialCards - 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 4 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.includes('Основной') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && materialWorkspacePreviewVisible && cardOptionsDefaultOn && logoPanelDefaultOff && logoPanelToggleWorks && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.backgroundRender === 'uploads/mat-qa-library.webp' && liveMaterialPreview.showRender === 'false' && liveMaterialPreview.color === '#123ABC' && liveMaterialPreview.houseBadge === 'false' && liveMaterialPreview.decoration === 'false' && liveMaterialPreview.logoPanel === 'false' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && imagePlanOptions > 1 && /^plan-[0-9a-f]{12}$/.test(selectedImagePlan) && selectedImagePlanCount > 0 && imagePlanRuleCreated && imageRuleStartsCollapsed && imageRuleExpanded && imageRuleScopeDetailed && imageRuleActionDetailed && individualParameterOptions === 9 && bulkParameterOptions === 10 && bulkDescriptionShortcodeExcluded && bulkDescriptionStartsEmpty && bulkDescriptionExpandVisible && bulkDescriptionModalVisible && bulkDescriptionModalSize.width > 700 && bulkDescriptionModalSize.height >= 320 && bulkDescriptionModalShortcodeInserted && bulkDescriptionContentPreserved && bulkDescriptionEscapeCloses && parameterRuleCreated && parameterRuleStartsCollapsed && parameterRuleExpanded && parameterRuleScopeDetailed && parameterRuleActionDetailed && descriptionEditorVisible && descriptionShortcodes >= 5 && descriptionShortcodeExcluded && addressShownFully && descriptionPreviewVisible && descriptionBlocksNormalized && descriptionFormattingPreserved && descriptionTemplateKept && descriptionResolved && roomsParameterAvailable && roomsStartsFromSource && studioRoomAvailable && roomValuesLimitedToFive && studioRoomFilterAvailable && roomsShortcodeUsesOverride && studioFilterMatchesOverride && planOptions > 1 && parameterToolbarLayout.planWidth <= 270 && parameterToolbarLayout.singleRow && /^plan-[0-9a-f]{12}$/.test(selectedPlan) && selectedPlanCount > 0 && parameterIndividualBefore === 1 && parameterIndividualLabels.includes('Описание') && parameterIndividualLabels.includes('Количество комнат') && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && excludedCardMarked === 1 && submitted && submitted.version === 4 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.background_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor) && submitted.card_settings.show_key_render === false && submitted.card_settings.show_house_badge === false && submitted.card_settings.show_decoration === false && submitted.card_settings.show_logo_panel === false,
     errors,
     empty_draft: {
       cleared: redundantDraftCleared,
@@ -561,6 +590,7 @@ const contentTypes = {
       rooms_parameter_available: roomsParameterAvailable,
       rooms_starts_from_source: roomsStartsFromSource,
       studio_room_available: studioRoomAvailable,
+      room_values_limited_to_five: roomValuesLimitedToFive,
       studio_room_filter_available: studioRoomFilterAvailable,
       rooms_shortcode_uses_override: roomsShortcodeUsesOverride,
       studio_filter_matches_override: studioFilterMatchesOverride,
@@ -588,7 +618,18 @@ const contentTypes = {
       options: imagePlanOptions,
       selected: selectedImagePlan,
       selected_count: selectedImagePlanCount,
-      bulk_rule_created: imagePlanRuleCreated
+      bulk_rule_created: imagePlanRuleCreated,
+      starts_collapsed: imageRuleStartsCollapsed,
+      expands: imageRuleExpanded,
+      scope_detailed: imageRuleScopeDetailed,
+      action_detailed: imageRuleActionDetailed
+    },
+    parameter_rule_details: {
+      created: parameterRuleCreated,
+      starts_collapsed: parameterRuleStartsCollapsed,
+      expands: parameterRuleExpanded,
+      scope_detailed: parameterRuleScopeDetailed,
+      action_detailed: parameterRuleActionDetailed
     },
     mobile_overflow_px: mobileOverflow,
     mobile_overflow_by_view: mobileOverflowByView,
