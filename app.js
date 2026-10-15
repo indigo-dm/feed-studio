@@ -234,10 +234,15 @@
   function itemMatchesFilters(item, filters) {
     var search = String(filters.search || '').trim().toLowerCase();
     return (!filters.house || item.house_id === filters.house) &&
-      (!filters.rooms || item.rooms === filters.rooms) &&
+      (!filters.rooms || effectiveRoomsForItem(item) === filters.rooms) &&
       (!filters.floor || String(item.floor) === filters.floor) &&
       (!filters.plan || String(item.plan_id) === filters.plan) &&
       (!search || item.id.toLowerCase().indexOf(search) >= 0);
+  }
+
+  function effectiveRoomsForItem(item) {
+    var values = effectiveParameters(item);
+    return String(values.Rooms != null ? values.Rooms : item.rooms || '');
   }
 
   function ruleMatchesSimple(item, rule) {
@@ -514,7 +519,7 @@
 
   function lotChangeLabel(lotId) {
     var item = state.inventory && state.inventory.items.find(function (lot) { return String(lot.id) === String(lotId); });
-    return item ? item.house + ' · ' + roomShortLabel(item.rooms) + ' · ID ' + item.id : 'ID ' + lotId;
+    return item ? item.house + ' · ' + roomShortLabel(effectiveRoomsForItem(item)) + ' · ID ' + item.id : 'ID ' + lotId;
   }
 
   function commonOrderChanged(current, published) {
@@ -763,7 +768,7 @@
     if (!ignoreExcluded && rule.exclude_ids.indexOf(String(item.id)) >= 0) return false;
     if (rule.include_ids.length && rule.include_ids.indexOf(String(item.id)) < 0) return false;
     if (rule.house_ids.length && rule.house_ids.indexOf(String(item.house_id)) < 0) return false;
-    if (rule.rooms.length && rule.rooms.indexOf(String(item.rooms)) < 0) return false;
+    if (rule.rooms.length && rule.rooms.indexOf(effectiveRoomsForItem(item)) < 0) return false;
     var area = Number(item.area);
     if (rule.area_min != null && area < Number(rule.area_min)) return false;
     if (rule.area_max != null && area > Number(rule.area_max)) return false;
@@ -781,7 +786,7 @@
 
   function lotCaption(id) {
     var item = lotById(id);
-    return item ? item.house + ' · ' + roomShortLabel(item.rooms) + ' · ' + formatArea(item.area) : 'Нет в текущем исходном фиде';
+    return item ? item.house + ' · ' + roomShortLabel(effectiveRoomsForItem(item)) + ' · ' + formatArea(item.area) : 'Нет в текущем исходном фиде';
   }
 
   function openIndividualLot(section, id) {
@@ -1122,16 +1127,17 @@
 
   function populateFilters() {
     var houses = new Map();
-    var rooms = new Set();
+    var rooms = new Set(['Студия']);
     var floors = new Set();
     var plans = new Map();
     state.inventory.items.forEach(function (item) {
+      var effectiveRooms = effectiveRoomsForItem(item);
       houses.set(String(item.house_id), item.house);
-      rooms.add(String(item.rooms));
+      rooms.add(effectiveRooms);
       floors.add(String(item.floor));
       var planKey = String(item.plan_id || '');
       if (planKey) {
-        var plan = plans.get(planKey) || { rooms: item.rooms, area: item.area, count: 0 };
+        var plan = plans.get(planKey) || { rooms: effectiveRooms, area: item.area, count: 0 };
         plan.count += 1;
         plans.set(planKey, plan);
       }
@@ -1167,7 +1173,7 @@
     $('#image-filter-plan').innerHTML = planOptions;
     $('#parameter-filter-plan').innerHTML = planOptions;
     var lotOptions = state.inventory.items.map(function (item) {
-      return '<option value="' + esc(item.id) + '">' + esc(item.house + ' · ' + roomShortLabel(item.rooms) + ' · ' + formatArea(item.area)) + '</option>';
+      return '<option value="' + esc(item.id) + '">' + esc(item.house + ' · ' + roomShortLabel(effectiveRoomsForItem(item)) + ' · ' + formatArea(item.area)) + '</option>';
     }).join('');
     $('#preview-lot').innerHTML = lotOptions;
     $('#image-lot').innerHTML = lotOptions;
@@ -1183,10 +1189,11 @@
   function lotCard(item) {
     var rule = appliedRule(item);
     var excluded = state.excludedLotIds.indexOf(String(item.id)) >= 0;
+    var effectiveRooms = effectiveRoomsForItem(item);
     return '<article class="lot-card ' + (excluded ? 'excluded' : '') + '">' +
-      '<div class="lot-image"><img src="' + esc(versionedUrl(item.thumbnail || item.image)) + '" alt="' + esc(item.house + ', ' + roomApartmentLabel(item.rooms)) + '" loading="lazy" decoding="async" width="480" height="360">' +
+      '<div class="lot-image"><img src="' + esc(versionedUrl(item.thumbnail || item.image)) + '" alt="' + esc(item.house + ', ' + roomApartmentLabel(effectiveRooms)) + '" loading="lazy" decoding="async" width="480" height="360">' +
       '<span class="lot-badge">' + (excluded ? 'Исключён из фида' : esc(item.house) + (rule ? ' · акция' : '')) + '</span></div>' +
-      '<div class="lot-body"><div class="lot-title"><strong>' + esc(roomApartmentLabel(item.rooms)) + ' · ' + esc(formatArea(item.area)) + '</strong><span>ID ' + esc(item.id) + '</span></div>' +
+      '<div class="lot-body"><div class="lot-title"><strong>' + esc(roomApartmentLabel(effectiveRooms)) + ' · ' + esc(formatArea(item.area)) + '</strong><span>ID ' + esc(item.id) + '</span></div>' +
       '<div class="lot-meta">' + esc(formatPrice(item.price)) + ' · этаж ' + esc(item.floor) + '/' + esc(item.floors) + '</div>' +
       '<div class="lot-actions"><button data-preview="' + esc(item.id) + '">Предпросмотр</button>' +
       '<button class="lot-feed-toggle ' + (excluded ? 'restore' : '') + '" data-toggle-feed-lot="' + esc(item.id) + '">' +
@@ -1777,7 +1784,7 @@
     $('#image-filter-count').textContent = filtered.length;
     if (!filtered.some(function (item) { return item.id === state.imageLotId; })) state.imageLotId = filtered[0] ? filtered[0].id : null;
     $('#image-lot').innerHTML = filtered.map(function (item) {
-      return '<option value="' + esc(item.id) + '">' + esc(item.house + ' · ' + roomShortLabel(item.rooms) + ' · ID ' + item.id) + '</option>';
+      return '<option value="' + esc(item.id) + '">' + esc(item.house + ' · ' + roomShortLabel(effectiveRoomsForItem(item)) + ' · ID ' + item.id) + '</option>';
     }).join('');
     $('#image-lot').value = state.imageLotId || '';
     var item = state.inventory.items.find(function (lot) { return lot.id === state.imageLotId; });
@@ -2216,7 +2223,7 @@
     $('#parameter-filter-count').textContent = filtered.length;
     if (!filtered.some(function (item) { return item.id === state.parameterLotId; })) state.parameterLotId = filtered[0] ? filtered[0].id : null;
     $('#parameter-lot').innerHTML = filtered.map(function (item) {
-      return '<option value="' + esc(item.id) + '">' + esc(item.house + ' · ' + roomShortLabel(item.rooms) + ' · ID ' + item.id) + '</option>';
+      return '<option value="' + esc(item.id) + '">' + esc(item.house + ' · ' + roomShortLabel(effectiveRoomsForItem(item)) + ' · ID ' + item.id) + '</option>';
     }).join('');
     $('#parameter-lot').value = state.parameterLotId || '';
     var item = state.inventory.items.find(function (lot) { return lot.id === state.parameterLotId; });
@@ -2360,13 +2367,15 @@
     var houseLabels = {};
     var roomValues = [];
     state.inventory.items.forEach(function (item) {
+      var effectiveRooms = effectiveRoomsForItem(item);
       if (houses.indexOf(item.house_id) < 0) houses.push(item.house_id);
       houseLabels[item.house_id] = item.house;
-      if (roomValues.indexOf(item.rooms) < 0) roomValues.push(item.rooms);
+      if (roomValues.indexOf(effectiveRooms) < 0) roomValues.push(effectiveRooms);
     });
-    roomValues.sort();
+    if (roomValues.indexOf('Студия') < 0) roomValues.push('Студия');
+    roomValues.sort(function (left, right) { return roomSortValue(left) - roomSortValue(right); });
     var roomLabels = {};
-    roomValues.forEach(function (room) { roomLabels[room] = room + '-комнатные'; });
+    roomValues.forEach(function (room) { roomLabels[room] = isStudioRoom(room) ? 'Студии' : room + '-комнатные'; });
     var groupMatches = state.inventory.items.filter(function (item) {
       return state.excludedLotIds.indexOf(String(item.id)) < 0 && ruleMatches(item, rule, true);
     });
@@ -2395,7 +2404,7 @@
       finalMatches.length + '</strong><span> из ' + groupMatches.length + ' после исключений</span></div></div>' +
       '<div class="match-list">' + (groupMatches.length ? groupMatches.map(function (item) {
         var excluded = rule.exclude_ids.indexOf(String(item.id)) >= 0;
-        return '<div class="match-item"><div><strong>' + esc(item.house + ' · ' + roomShortLabel(item.rooms) + ' · ' + formatArea(item.area)) +
+        return '<div class="match-item"><div><strong>' + esc(item.house + ' · ' + roomShortLabel(effectiveRoomsForItem(item)) + ' · ' + formatArea(item.area)) +
           '</strong><small>ID ' + esc(item.id) + '</small></div><button class="exclude-button ' + (excluded ? 'excluded' : '') +
           '" data-exclude="' + esc(item.id) + '">' + (excluded ? 'Вернуть' : 'Исключить') + '</button></div>';
       }).join('') : '<div class="empty-state">Нет подходящих квартир.</div>') + '</div></div>';
@@ -2655,7 +2664,7 @@
     state.materialPreviewId = selected.id;
     select.disabled = false;
     select.innerHTML = items.map(function (item) {
-      return '<option value="' + esc(item.id) + '">' + esc(item.house + ' · ' + roomShortLabel(item.rooms) + ' · ' + formatArea(item.area)) + '</option>';
+      return '<option value="' + esc(item.id) + '">' + esc(item.house + ' · ' + roomShortLabel(effectiveRoomsForItem(item)) + ' · ' + formatArea(item.area)) + '</option>';
     }).join('');
     select.value = selected.id;
     empty.classList.add('hidden');
