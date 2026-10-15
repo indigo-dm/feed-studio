@@ -643,6 +643,274 @@
     return changes;
   }
 
+  function publishedParameterValuesForItem(item) {
+    var values = {};
+    (state.publishedParameterSettings.bulk_rules || []).forEach(function (rule) {
+      if (rule.enabled !== false && ruleMatchesSimple(item, rule)) Object.assign(values, rule.values || {});
+    });
+    Object.assign(values, state.publishedParameterSettings.lot_values[String(item.id)] || {});
+    return values;
+  }
+
+  function publishedRoomsForItem(item) {
+    var values = publishedParameterValuesForItem(item);
+    return String(values.Rooms != null ? values.Rooms : item.rooms || '');
+  }
+
+  function publishedLotLabel(lotId) {
+    var item = state.inventory && state.inventory.items.find(function (lot) { return String(lot.id) === String(lotId); });
+    return item ? item.house + ' · ' + roomShortLabel(publishedRoomsForItem(item)) + ' · ID ' + item.id : 'ID ' + lotId;
+  }
+
+  function publishedPromotionRuleMatches(item, rule) {
+    var today = new Date().toISOString().slice(0, 10);
+    if (rule.starts_at && today < rule.starts_at) return false;
+    if (rule.ends_at && today > rule.ends_at) return false;
+    if ((rule.exclude_ids || []).indexOf(String(item.id)) >= 0) return false;
+    if ((rule.include_ids || []).length && (rule.include_ids || []).indexOf(String(item.id)) < 0) return false;
+    if ((rule.house_ids || []).length && (rule.house_ids || []).indexOf(String(item.house_id)) < 0) return false;
+    if ((rule.rooms || []).length && (rule.rooms || []).indexOf(publishedRoomsForItem(item)) < 0) return false;
+    if ((rule.floors || []).length && (rule.floors || []).indexOf(String(item.floor)) < 0) return false;
+    if ((rule.apartment_numbers || []).length && (rule.apartment_numbers || []).indexOf(apartmentNumberForItem(item)) < 0) return false;
+    var area = Number(item.area);
+    if (rule.area_min != null && area < Number(rule.area_min)) return false;
+    if (rule.area_max != null && area > Number(rule.area_max)) return false;
+    return true;
+  }
+
+  function publishedAppliedRule(item) {
+    if (state.publishedExcludedLotIds.indexOf(String(item.id)) >= 0) return null;
+    return state.publishedRules.find(function (rule) {
+      return rule.enabled && publishedPromotionRuleMatches(item, rule);
+    }) || null;
+  }
+
+  function savedValueText(value, tag) {
+    if (value == null || value === '') return 'Пустое значение';
+    if (Array.isArray(value)) return value.length ? value.join(', ') : 'Пустое значение';
+    var text = String(value);
+    if (tag === DESCRIPTION_TAG || /<[^>]+>/.test(text)) {
+      text = text.replace(/<br\s*\/?\s*>/gi, '\n').replace(/<\/p\s*>/gi, '\n').replace(/<\/li\s*>/gi, '\n')
+        .replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+        .replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
+    }
+    if (tag === DESCRIPTION_TAG) return text;
+    return text.length > 420 ? text.slice(0, 417) + '…' : text;
+  }
+
+  function savedScopeFacts(rule, matchingItems) {
+    var houses = (rule.house_ids || []).map(function (houseId) {
+      var item = state.inventory.items.find(function (lot) { return String(lot.house_id) === String(houseId); });
+      return item ? item.house : houseId;
+    });
+    var rooms = (rule.rooms || []).map(roomApartmentLabel);
+    var floors = (rule.floors || []).map(String);
+    var apartmentNumbers = (rule.apartment_numbers || []).map(String);
+    var plans = (rule.plan_ids || []).map(function (planId) {
+      var matches = state.inventory.items.filter(function (item) { return String(item.plan_id || '') === String(planId); });
+      var item = matches[0];
+      return item ? roomShortLabel(item.rooms) + ' · ' + formatArea(item.area) : String(planId);
+    });
+    var areas = [];
+    if (rule.area_min != null) areas.push('от ' + formatArea(rule.area_min));
+    if (rule.area_max != null) areas.push('до ' + formatArea(rule.area_max));
+    var facts = [
+      ['Дом', houses.length ? houses.join(', ') : 'Все дома'],
+      ['Комнатность', rooms.length ? rooms.join(', ') : 'Любая'],
+      ['Этаж', floors.length ? floors.join(', ') : 'Любой']
+    ];
+    if (apartmentNumbers.length) facts.push(['Номера квартир', compactList(apartmentNumbers, 12)]);
+    if (plans.length) facts.push(['Планировка', plans.join('; ')]);
+    if (areas.length) facts.push(['Площадь', areas.join(' ')]);
+    if ((rule.include_ids || []).length) facts.push(['Выбраны ID', compactList(rule.include_ids, 12)]);
+    if ((rule.exclude_ids || []).length) facts.push(['Исключены ID', compactList(rule.exclude_ids, 12)]);
+    facts.push(['Под условия попадает', apartmentCountLabel(matchingItems.length)]);
+    return facts;
+  }
+
+  function imageOverrideSavedChange(lotId, override) {
+    var item = state.inventory && state.inventory.items.find(function (lot) { return String(lot.id) === String(lotId); });
+    var sourceIds = item ? ['brand-card'].concat((item.source_images || []).map(function (image) { return image.id; })) : [];
+    var addedIds = (override.added || []).map(function (image) { return image.id; });
+    var hidden = (override.hidden || []).map(String);
+    var naturalVisible = sourceIds.concat(addedIds).filter(function (id) { return hidden.indexOf(String(id)) < 0; });
+    var ordered = (override.order || []).map(String).filter(function (id) { return naturalVisible.indexOf(id) >= 0; });
+    var orderChanged = ordered.length > 0 && (ordered.length !== naturalVisible.length || ordered.some(function (id, index) {
+      return id !== naturalVisible[index];
+    }));
+    if (!orderChanged && !hidden.length && !addedIds.length) return null;
+    var parts = [];
+    var facts = [];
+    if (orderChanged) {
+      parts.push('изменён порядок');
+      facts.push(['Порядок', ordered.length ? compactList(ordered, 14) : 'Задан вручную']);
+    }
+    if (hidden.length) {
+      parts.push('скрыто: ' + hidden.length);
+      facts.push(['Скрытые изображения', compactList(hidden, 14)]);
+    }
+    if (addedIds.length) {
+      parts.push('добавлено: ' + addedIds.length);
+      facts.push(['Добавленные изображения', compactList(addedIds, 14)]);
+    }
+    return {
+      id: 'published-image-lot::' + lotId,
+      category: 'Изображения',
+      title: publishedLotLabel(lotId),
+      detail: parts.join(' · '),
+      status: 'Применено',
+      tone: '',
+      facts: facts
+    };
+  }
+
+  function collectPublishedChanges() {
+    if (!state.project || !state.inventory) return [];
+    var changes = [];
+    var add = function (id, category, title, detail, status, tone, facts) {
+      changes.push({ id: id, category: category, title: title, detail: detail, status: status || 'Сохранено', tone: tone || '', facts: facts || [] });
+    };
+
+    state.publishedRules.forEach(function (rule) {
+      var matchingItems = state.inventory.items.filter(function (item) { return publishedPromotionRuleMatches(item, rule); });
+      var appliedItems = state.inventory.items.filter(function (item) {
+        var applied = publishedAppliedRule(item);
+        return applied && String(applied.id) === String(rule.id);
+      });
+      var facts = [
+        ['Текст на карточке', [rule.label, rule.text].filter(Boolean).join(' · ') || 'Не задан'],
+        ['Фактически получают акцию', apartmentCountLabel(appliedItems.length)]
+      ].concat(savedScopeFacts(rule, matchingItems));
+      if (rule.starts_at || rule.ends_at) facts.push(['Период', (rule.starts_at || 'без даты') + ' — ' + (rule.ends_at || 'без даты')]);
+      add('published-promotion::' + rule.id, 'Акции', rule.name || 'Правило акции',
+        rule.enabled ? apartmentCountLabel(appliedItems.length) + ' получают эту акцию' : 'Правило сохранено, но выключено и не влияет на фид',
+        rule.enabled ? 'Активно' : 'Выключено', rule.enabled ? '' : 'inactive', facts);
+    });
+
+    Object.keys(state.publishedImageSettings.lot_overrides || {}).forEach(function (lotId) {
+      var change = imageOverrideSavedChange(lotId, state.publishedImageSettings.lot_overrides[lotId] || {});
+      if (change) changes.push(change);
+    });
+    (state.publishedImageSettings.bulk_rules || []).forEach(function (rule) {
+      var matchingItems = state.inventory.items.filter(function (item) { return ruleMatchesSimple(item, rule); });
+      var enabled = rule.enabled !== false;
+      add('published-image-bulk::' + rule.id, 'Изображения', rule.name || 'Массовое правило изображений',
+        enabled ? 'Позиция ' + rule.from_position + ' → ' + rule.to_position + ' · ' + apartmentCountLabel(matchingItems.length) : 'Правило сохранено, но выключено',
+        enabled ? 'Активно' : 'Выключено', enabled ? '' : 'inactive',
+        [['Действие', 'Переместить изображение с позиции ' + rule.from_position + ' на позицию ' + rule.to_position]].concat(savedScopeFacts(rule, matchingItems)));
+    });
+
+    Object.keys(state.publishedParameterSettings.lot_values || {}).forEach(function (lotId) {
+      var values = state.publishedParameterSettings.lot_values[lotId] || {};
+      var item = state.inventory.items.find(function (lot) { return String(lot.id) === String(lotId); });
+      var tags = Object.keys(values);
+      if (!tags.length) return;
+      var facts = [];
+      tags.forEach(function (tag) {
+        var catalog = parameterByTag(tag) || { name: tag };
+        var sourceValue = item && item.source_values ? item.source_values[tag] : null;
+        facts.push([catalog.name + ' · исходный фид', savedValueText(sourceValue, tag)]);
+        facts.push([catalog.name + ' · сохранено', savedValueText(values[tag], tag)]);
+      });
+      add('published-parameter-lot::' + lotId, 'Параметры', publishedLotLabel(lotId),
+        tags.map(function (tag) { return (parameterByTag(tag) || { name: tag }).name; }).join(', '),
+        'Применено', '', facts);
+    });
+    (state.publishedParameterSettings.bulk_rules || []).forEach(function (rule) {
+      var matchingItems = state.inventory.items.filter(function (item) { return ruleMatchesSimple(item, rule); });
+      var enabled = rule.enabled !== false;
+      var facts = Object.keys(rule.values || {}).map(function (tag) {
+        var catalog = parameterByTag(tag) || { name: tag };
+        return [catalog.name, savedValueText(rule.values[tag], tag)];
+      }).concat(savedScopeFacts(rule, matchingItems));
+      add('published-parameter-bulk::' + rule.id, 'Параметры', rule.name || 'Массовое правило параметров',
+        enabled ? apartmentCountLabel(matchingItems.length) + ' · ' + Object.keys(rule.values || {}).map(function (tag) {
+          return (parameterByTag(tag) || { name: tag }).name;
+        }).join(', ') : 'Правило сохранено, но выключено',
+        enabled ? 'Активно' : 'Выключено', enabled ? '' : 'inactive', facts);
+    });
+
+    if (state.publishedExcludedLotIds.length) {
+      add('published-excluded-lots', 'Состав фида', 'Исключённые квартиры', apartmentCountLabel(state.publishedExcludedLotIds.length) + ' не попадают в готовый XML',
+        'Применено', 'warning', [['ID квартир', state.publishedExcludedLotIds.join(', ')]]);
+    }
+
+    var materials = state.publishedMaterialSettings || {};
+    var materialFacts = [];
+    if (materials.logo) materialFacts.push(['Логотип', materials.logo]);
+    if (materials.key_render) materialFacts.push(['Рендер в макете', materials.key_render]);
+    materialFacts.push(['Фоновое изображение', materials.background_render || 'Не используется']);
+    [['primary_color', 'Основной цвет'], ['background_color', 'Цвет фона'], ['text_color', 'Цвет текста'], ['subtitle_color', 'Цвет подзаголовков']].forEach(function (entry) {
+      if (materials[entry[0]]) materialFacts.push([entry[1], materials[entry[0]]]);
+    });
+    if ((materials.palette || []).length) materialFacts.push(['Палитра', materials.palette.map(function (color) { return color.name + ' ' + color.value; }).join('; ')]);
+    if (materialFacts.length) add('published-materials', 'Материалы', 'Фирменные материалы проекта', 'Текущие материалы и цвета брендированной карточки', 'Применено', '', materialFacts);
+
+    var defaultCardSettings = { show_key_render: true, show_house_badge: true, show_decoration: true, show_logo_panel: false };
+    var cardLabels = {
+      show_key_render: 'Рендер в макете', show_house_badge: 'Плашка дома', show_decoration: 'Тип отделки', show_logo_panel: 'Подложка логотипа'
+    };
+    var changedCardKeys = Object.keys(defaultCardSettings).filter(function (key) {
+      return state.publishedCardSettings[key] !== defaultCardSettings[key];
+    });
+    if (changedCardKeys.length) {
+      add('published-card-settings', 'Макет карточки', 'Элементы брендированной карточки', 'Изменено относительно стандартного макета', 'Применено', '',
+        changedCardKeys.map(function (key) { return [cardLabels[key], state.publishedCardSettings[key] ? 'Показывается' : 'Скрыто']; }));
+    }
+    return changes;
+  }
+
+  function changeCountLabel(count) {
+    var value = Math.abs(Number(count)) % 100;
+    var last = value % 10;
+    if (value > 10 && value < 20) return count + ' изменений';
+    if (last === 1) return count + ' изменение';
+    if (last > 1 && last < 5) return count + ' изменения';
+    return count + ' изменений';
+  }
+
+  function renderPublishedChangeButton() {
+    var button = $('#review-published');
+    if (!button) return;
+    var count = collectPublishedChanges().length;
+    button.textContent = count ? 'Сохранённые изменения · ' + count : 'Сохранённые изменения';
+    button.classList.toggle('has-changes', count > 0);
+    button.disabled = !state.project || !state.inventory;
+  }
+
+  function renderPublishedChangesModal() {
+    var changes = collectPublishedChanges();
+    var list = $('#published-change-list');
+    $('#published-change-count').textContent = changeCountLabel(changes.length);
+    $('#published-change-date').textContent = state.status && state.status.checked_at
+      ? 'Опубликованная версия · ' + formatDateTime(state.status.checked_at)
+      : 'Текущая опубликованная версия';
+    if (!changes.length) {
+      list.innerHTML = '<div class="published-change-empty">В опубликованных настройках нет изменений относительно стандартной обработки исходного фида.</div>';
+      return;
+    }
+    var order = ['Акции', 'Изображения', 'Параметры', 'Состав фида', 'Материалы', 'Макет карточки'];
+    list.innerHTML = order.map(function (category) {
+      var items = changes.filter(function (change) { return change.category === category; });
+      if (!items.length) return '';
+      return '<section class="published-change-group"><div class="published-change-group-heading"><h3>' + esc(category) + '</h3><span>' + items.length + '</span></div>' +
+        items.map(function (change) {
+          var facts = change.facts.map(function (fact) {
+            return '<dt>' + esc(fact[0]) + '</dt><dd>' + esc(fact[1]) + '</dd>';
+          }).join('');
+          return '<details class="published-change-item" data-published-change="' + esc(change.id) + '"><summary>' +
+            '<span class="published-change-summary-copy"><strong>' + esc(change.title) + '</strong><small>' + esc(change.detail) + '</small></span>' +
+            '<span class="published-change-status ' + esc(change.tone) + '">' + esc(change.status) + '</span></summary>' +
+            '<div class="published-change-body"><dl class="published-change-facts">' + facts + '</dl></div></details>';
+        }).join('') + '</section>';
+    }).join('');
+  }
+
+  function openPublishedChangesModal() {
+    renderPublishedChangesModal();
+    $('#published-changes-modal').classList.remove('hidden');
+  }
+
   function renderUnsavedChangeButton() {
     var button = $('#review-unsaved');
     if (!button) return;
@@ -2927,6 +3195,7 @@
     renderPreview();
     renderFeedRefreshState();
     renderUnsavedChangeButton();
+    renderPublishedChangeButton();
   }
 
   function settingsPayload() {
@@ -3336,7 +3605,10 @@
       if (event.target.id === 'description-modal') closeExpandedDescriptionEditor();
     });
     document.addEventListener('keydown', function (event) {
-      if (event.key === 'Escape' && !$('#description-modal').classList.contains('hidden')) closeExpandedDescriptionEditor();
+      if (event.key !== 'Escape') return;
+      if (!$('#description-modal').classList.contains('hidden')) closeExpandedDescriptionEditor();
+      else if (!$('#published-changes-modal').classList.contains('hidden')) $('#published-changes-modal').classList.add('hidden');
+      else if (!$('#changes-modal').classList.contains('hidden')) $('#changes-modal').classList.add('hidden');
     });
     $('#apply-parameter-bulk').addEventListener('click', function () {
       var items = filteredParameterItems();
@@ -3396,7 +3668,9 @@
     });
     $('#save-draft').addEventListener('click', function () { saveDraft(true); });
     $('#review-unsaved').addEventListener('click', openChangesModal);
+    $('#review-published').addEventListener('click', openPublishedChangesModal);
     $('#close-changes').addEventListener('click', function () { $('#changes-modal').classList.add('hidden'); });
+    $('#close-published-changes').addEventListener('click', function () { $('#published-changes-modal').classList.add('hidden'); });
     $('#remove-selected-changes').addEventListener('click', removeSelectedChanges);
     $('#clear-unsaved').addEventListener('click', clearAllUnsavedChanges);
     $('#select-all-changes').addEventListener('change', function (event) {
@@ -3405,6 +3679,9 @@
     });
     $('#changes-modal').addEventListener('click', function (event) {
       if (event.target.id === 'changes-modal') $('#changes-modal').classList.add('hidden');
+    });
+    $('#published-changes-modal').addEventListener('click', function (event) {
+      if (event.target.id === 'published-changes-modal') $('#published-changes-modal').classList.add('hidden');
     });
     $('#refresh-profitbase').addEventListener('click', requestFeedRefresh);
     $('#publish-settings').addEventListener('click', openPublishModal);

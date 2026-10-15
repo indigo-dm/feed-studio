@@ -9,7 +9,7 @@
   <meta name="description" content="Feed Studio — управление брендированными фидами объектов недвижимости">
   <title>Feed Studio — управление фидами</title>
   <link rel="icon" href="assets/indigo-logo.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="app.css?v=20261015-promotion-filters-1">
+  <link rel="stylesheet" href="app.css?v=20261015-published-changes-1">
 </head>
 <body class="access-locked">
   <section class="access-gate" id="access-gate" aria-labelledby="access-title">
@@ -68,6 +68,7 @@
         <div class="top-actions">
           <span class="saved-state" id="saved-state" role="status" aria-live="polite">Настройки загружены</span>
           <button class="button button-secondary review-changes-button" id="review-unsaved" type="button">Посмотреть несохранённые изменения</button>
+          <button class="button button-secondary review-published-button" id="review-published" type="button">Сохранённые изменения</button>
           <div class="feed-refresh-control">
             <button class="button button-secondary feed-refresh-button" id="refresh-profitbase" type="button" title="Получить актуальный исходный фид выбранного объекта">Обновить исходный фид</button>
             <span class="feed-source-state" id="feed-source-state">Источник проверяется…</span>
@@ -430,8 +431,23 @@
       </div>
     </div>
   </div>
-  <script src="runtime-config.js?v=20261015-promotion-filters-1" defer></script>
-  <script src="access-config.js?v=20261015-promotion-filters-1" defer></script>
-  <script src="access.js?v=20261015-promotion-filters-1" defer></script>
+  <div class="modal-backdrop hidden" id="published-changes-modal" role="dialog" aria-modal="true" aria-labelledby="published-changes-modal-title">
+    <div class="modal changes-modal published-changes-modal">
+      <p class="eyebrow">Опубликованная версия объекта</p>
+      <h2 id="published-changes-modal-title">Сохранённые изменения</h2>
+      <p>Показаны настройки Feed Studio, сохранённые в текущем опубликованном фиде. Окно доступно только для просмотра.</p>
+      <div class="change-review-toolbar published-change-toolbar">
+        <span id="published-change-date">Текущая версия</span>
+        <strong id="published-change-count">0 изменений</strong>
+      </div>
+      <div class="published-change-list" id="published-change-list"></div>
+      <div class="modal-actions changes-modal-actions">
+        <button class="button button-secondary" id="close-published-changes">Закрыть</button>
+      </div>
+    </div>
+  </div>
+  <script src="runtime-config.js?v=20261015-published-changes-1" defer></script>
+  <script src="access-config.js?v=20261015-published-changes-1" defer></script>
+  <script src="access.js?v=20261015-published-changes-1" defer></script>
 </body>
 </html>

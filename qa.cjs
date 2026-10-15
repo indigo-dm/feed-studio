@@ -200,6 +200,20 @@ const contentTypes = {
   const redundantDraftCleared = await page.evaluate(() => !localStorage.getItem('feed-studio-rules-v1-novyy-gorizont'));
   const emptyPublishDisabled = await page.locator('#publish-settings').isDisabled();
   const emptyDraftStatus = (await page.locator('#saved-state').innerText()).trim();
+  const publishedChangesButtonText = (await page.locator('#review-published').innerText()).trim();
+  await page.locator('#review-published').click();
+  const publishedChangesModalVisible = await page.locator('#published-changes-modal').isVisible();
+  const publishedChangesCount = await page.locator('#published-change-list .published-change-item').count();
+  const publishedChangeCategories = await page.locator('#published-change-list .published-change-group-heading h3').allTextContents();
+  const publishedChangesReadOnly = await page.locator('#published-changes-modal input, #published-changes-modal .button-danger').count() === 0;
+  const publishedChangeDate = (await page.locator('#published-change-date').innerText()).trim();
+  const firstPublishedChange = page.locator('#published-change-list .published-change-item').first();
+  await firstPublishedChange.locator('summary').click();
+  const publishedChangeDetailsWork = await firstPublishedChange.evaluate((details) => details.open) &&
+    await firstPublishedChange.locator('.published-change-facts dt').count() > 0 &&
+    await firstPublishedChange.locator('.published-change-facts dd').count() > 0;
+  await page.screenshot({ path: path.join(os.tmpdir(), 'feed-studio-published-changes-desktop-qa.png'), fullPage: false });
+  await page.locator('#close-published-changes').click();
   const refreshButtonText = ((await page.locator('#refresh-profitbase').textContent()) || '').trim();
   const sourceStateText = ((await page.locator('#feed-source-state').textContent()) || '').trim();
   const staleManualDateHidden = refreshButtonText === 'Обновить исходный фид' && !sourceStateText.includes('27 сент.');
@@ -570,6 +584,20 @@ const contentTypes = {
   }
   const mobileOverflow = Math.max(...Object.values(mobileOverflowByView));
   const mobileMaterialActions = await page.locator('.asset-actions .button').count();
+  await page.locator('#review-published').click();
+  const mobilePublishedModal = await page.locator('.published-changes-modal').evaluate((modal) => {
+    const rect = modal.getBoundingClientRect();
+    return {
+      visible: !modal.closest('#published-changes-modal').classList.contains('hidden'),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
+    };
+  });
+  await page.screenshot({ path: path.join(os.tmpdir(), 'feed-studio-published-changes-mobile-qa.png'), fullPage: false });
+  await page.locator('#close-published-changes').click();
   await page.locator('[data-view="lots"]').click();
   const excludedLotId = await page.locator('[data-toggle-feed-lot]').first().getAttribute('data-toggle-feed-lot');
   await page.locator('[data-toggle-feed-lot]').first().click();
@@ -579,12 +607,21 @@ const contentTypes = {
   await page.waitForFunction(() => window.localStorage.getItem('feed-studio-publish-v1-novyy-gorizont'));
 
   const result = {
-    ok: errors.length === 0 && loadingIndicatorAvailable && projectSessionCacheWorks && redundantDraftCleared && emptyPublishDisabled && !emptyDraftStatus.includes('не применён') && projectSwitchingWorks && projectRefreshPersistenceWorks && sourceFeedSettingWorks && staleManualDateHidden && sourceStateText.includes('Источник проверен') && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 5 && activeBefore === 2 && unusedDeleteAvailable && unusedMaterialDeleted && builtInDeleteAvailable && builtInMaterialDeleted && cardsAfterMaterialDelete === initialCards - 1 && selectedMaterialDeleteButtons === 0 && visibleProfitbaseMentions === 0 && selectedLibrary.some((text) => text.includes('Рендер в макете')) && cardsAfterUpload === initialCards - 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 4 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.includes('Основной') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && materialWorkspacePreviewVisible && cardOptionsDefaultOn && logoPanelDefaultOff && logoPanelToggleWorks && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.backgroundRender === 'uploads/mat-qa-library.webp' && liveMaterialPreview.showRender === 'false' && liveMaterialPreview.color === '#123ABC' && liveMaterialPreview.houseBadge === 'false' && liveMaterialPreview.decoration === 'false' && liveMaterialPreview.logoPanel === 'false' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && imagePlanOptions > 1 && /^plan-[0-9a-f]{12}$/.test(selectedImagePlan) && selectedImagePlanCount > 0 && imagePlanRuleCreated && imageRuleStartsCollapsed && imageRuleExpanded && imageRuleScopeDetailed && imageRuleActionDetailed && bulkAddedImageMoved && individualParameterOptions === 9 && bulkParameterOptions === 10 && bulkDescriptionShortcodeExcluded && bulkDescriptionStartsEmpty && bulkDescriptionExpandVisible && bulkDescriptionModalVisible && bulkDescriptionModalSize.width > 700 && bulkDescriptionModalSize.height >= 320 && bulkDescriptionModalShortcodeInserted && bulkDescriptionContentPreserved && bulkDescriptionEscapeCloses && parameterRuleCreated && parameterRuleStartsCollapsed && parameterRuleExpanded && parameterRuleScopeDetailed && parameterRuleActionDetailed && descriptionEditorVisible && descriptionShortcodes >= 5 && descriptionShortcodeExcluded && addressShownFully && descriptionPreviewVisible && descriptionBlocksNormalized && descriptionFormattingPreserved && descriptionTemplateKept && descriptionResolved && roomsParameterAvailable && roomsStartsFromSource && studioRoomAvailable && roomValuesLimitedToFive && studioRoomFilterAvailable && roomsShortcodeUsesOverride && studioFilterMatchesOverride && planOptions > 1 && parameterToolbarLayout.planWidth <= 270 && parameterToolbarLayout.singleRow && /^plan-[0-9a-f]{12}$/.test(selectedPlan) && selectedPlanCount > 0 && parameterLotContextWorks && parameterIndividualBefore === 1 && parameterIndividualLabels.includes('Описание') && parameterIndividualLabels.includes('Количество комнат') && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && promotionMultiFiltersWork && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && excludedCardMarked === 1 && submitted && submitted.version === 4 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.rules.some((rule) => promotionTargets.every((target) => rule.floors.includes(String(target.floor)) && rule.apartment_numbers.includes(String(target.source_values.ApartmentNumber)))) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.background_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor) && submitted.card_settings.show_key_render === false && submitted.card_settings.show_house_badge === false && submitted.card_settings.show_decoration === false && submitted.card_settings.show_logo_panel === false,
+    ok: errors.length === 0 && loadingIndicatorAvailable && projectSessionCacheWorks && redundantDraftCleared && emptyPublishDisabled && !emptyDraftStatus.includes('не применён') && publishedChangesModalVisible && publishedChangesCount >= 2 && publishedChangesButtonText.includes(String(publishedChangesCount)) && publishedChangeCategories.includes('Акции') && publishedChangeCategories.includes('Материалы') && publishedChangesReadOnly && publishedChangeDate.includes('Опубликованная версия') && publishedChangeDetailsWork && projectSwitchingWorks && projectRefreshPersistenceWorks && sourceFeedSettingWorks && staleManualDateHidden && sourceStateText.includes('Источник проверен') && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 5 && activeBefore === 2 && unusedDeleteAvailable && unusedMaterialDeleted && builtInDeleteAvailable && builtInMaterialDeleted && cardsAfterMaterialDelete === initialCards - 1 && selectedMaterialDeleteButtons === 0 && visibleProfitbaseMentions === 0 && selectedLibrary.some((text) => text.includes('Рендер в макете')) && cardsAfterUpload === initialCards - 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 4 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.includes('Основной') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && materialWorkspacePreviewVisible && cardOptionsDefaultOn && logoPanelDefaultOff && logoPanelToggleWorks && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.backgroundRender === 'uploads/mat-qa-library.webp' && liveMaterialPreview.showRender === 'false' && liveMaterialPreview.color === '#123ABC' && liveMaterialPreview.houseBadge === 'false' && liveMaterialPreview.decoration === 'false' && liveMaterialPreview.logoPanel === 'false' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && imagePlanOptions > 1 && /^plan-[0-9a-f]{12}$/.test(selectedImagePlan) && selectedImagePlanCount > 0 && imagePlanRuleCreated && imageRuleStartsCollapsed && imageRuleExpanded && imageRuleScopeDetailed && imageRuleActionDetailed && bulkAddedImageMoved && individualParameterOptions === 9 && bulkParameterOptions === 10 && bulkDescriptionShortcodeExcluded && bulkDescriptionStartsEmpty && bulkDescriptionExpandVisible && bulkDescriptionModalVisible && bulkDescriptionModalSize.width > 700 && bulkDescriptionModalSize.height >= 320 && bulkDescriptionModalShortcodeInserted && bulkDescriptionContentPreserved && bulkDescriptionEscapeCloses && parameterRuleCreated && parameterRuleStartsCollapsed && parameterRuleExpanded && parameterRuleScopeDetailed && parameterRuleActionDetailed && descriptionEditorVisible && descriptionShortcodes >= 5 && descriptionShortcodeExcluded && addressShownFully && descriptionPreviewVisible && descriptionBlocksNormalized && descriptionFormattingPreserved && descriptionTemplateKept && descriptionResolved && roomsParameterAvailable && roomsStartsFromSource && studioRoomAvailable && roomValuesLimitedToFive && studioRoomFilterAvailable && roomsShortcodeUsesOverride && studioFilterMatchesOverride && planOptions > 1 && parameterToolbarLayout.planWidth <= 270 && parameterToolbarLayout.singleRow && /^plan-[0-9a-f]{12}$/.test(selectedPlan) && selectedPlanCount > 0 && parameterLotContextWorks && parameterIndividualBefore === 1 && parameterIndividualLabels.includes('Описание') && parameterIndividualLabels.includes('Количество комнат') && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && promotionMultiFiltersWork && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && mobilePublishedModal.visible && mobilePublishedModal.width === mobilePublishedModal.viewportWidth && mobilePublishedModal.height === mobilePublishedModal.viewportHeight && mobilePublishedModal.overflow <= 1 && excludedCardMarked === 1 && submitted && submitted.version === 4 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.rules.some((rule) => promotionTargets.every((target) => rule.floors.includes(String(target.floor)) && rule.apartment_numbers.includes(String(target.source_values.ApartmentNumber)))) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.background_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor) && submitted.card_settings.show_key_render === false && submitted.card_settings.show_house_badge === false && submitted.card_settings.show_decoration === false && submitted.card_settings.show_logo_panel === false,
     errors,
     empty_draft: {
       cleared: redundantDraftCleared,
       publish_disabled: emptyPublishDisabled,
       status: emptyDraftStatus
+    },
+    published_changes: {
+      button: publishedChangesButtonText,
+      modal_visible: publishedChangesModalVisible,
+      count: publishedChangesCount,
+      categories: publishedChangeCategories,
+      read_only: publishedChangesReadOnly,
+      version: publishedChangeDate,
+      details_work: publishedChangeDetailsWork
     },
     project_switching: {
       available: availableProjects.map((project) => project.slug),
@@ -701,6 +738,7 @@ const contentTypes = {
     },
     mobile_overflow_px: mobileOverflow,
     mobile_overflow_by_view: mobileOverflowByView,
+    mobile_published_changes: mobilePublishedModal,
     mobile_material_actions: mobileMaterialActions,
     excluded_lot_id: excludedLotId,
     excluded_card_marked: excludedCardMarked,
