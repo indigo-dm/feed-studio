@@ -337,6 +337,58 @@ const contentTypes = {
   await page.locator('#preview-canvas').screenshot({ path: path.join(os.tmpdir(), 'feed-studio-live-material-preview-qa.png') });
 
   await page.locator('[data-view="images"]').click();
+  const apartmentFilterSectionsAvailable = await page.locator('#lot-apartment-filter .toolbar-apartment-multi').count() === 1 &&
+    await page.locator('#image-apartment-filter .toolbar-apartment-multi').count() === 1 &&
+    await page.locator('#parameter-apartment-filter .toolbar-apartment-multi').count() === 1;
+  const qaApartmentNumber = String(qaInventory.items[0].source_values.ApartmentNumber);
+  await page.locator('#image-apartment-filter summary').click();
+  await page.locator('#image-apartment-filter [data-apartment-filter-search]').fill(qaApartmentNumber);
+  await page.locator(`#image-apartment-filter [data-apartment-filter-option] input[value="${qaApartmentNumber}"]`).check();
+  const apartmentFilterCount = Number(await page.locator('#image-filter-count').innerText());
+  const apartmentFilterWorks = apartmentFilterCount === 1 &&
+    await page.locator('#image-apartment-filter [data-apartment-filter-summary]').innerText() === 'Выбрано: 1';
+  await page.locator('#image-apartment-filter [data-apartment-filter-clear]').click();
+
+  await page.locator('[data-open-chessboard="images"]').click();
+  const chessboardVisible = await page.locator('#chessboard-modal').isVisible();
+  const chessboardHasFloors = await page.locator('.chessboard-floor').count() > 0;
+  const chessboardHasThumbnails = await page.locator('.chessboard-lot img').count() > 0;
+  await page.locator('.chessboard-modal').screenshot({ path: path.join(os.tmpdir(), 'feed-studio-chessboard-qa.png') });
+  const chessboardChosenIds = [];
+  for (let index = 0; index < 2; index += 1) {
+    const checkbox = page.locator('[data-chessboard-id]').nth(index);
+    chessboardChosenIds.push(await checkbox.getAttribute('data-chessboard-id'));
+    await checkbox.check();
+  }
+  await page.locator('#apply-chessboard').click();
+  const chessboardExactCount = Number(await page.locator('#image-filter-count').innerText());
+  const chessboardButtonText = await page.locator('[data-open-chessboard="images"]').innerText();
+  await page.locator('#bulk-image-from').fill('2');
+  await page.locator('#bulk-image-to').fill('1');
+  await page.locator('#apply-image-bulk').click();
+  const chessboardRule = page.locator('#image-bulk-rules .bulk-rule').last();
+  const chessboardRuleText = await chessboardRule.innerText();
+  await chessboardRule.locator('[data-delete-image-rule]').click();
+  const chessboardSelectionWorks = chessboardVisible && chessboardHasFloors && chessboardHasThumbnails &&
+    chessboardExactCount === 2 && chessboardButtonText.includes('2') && chessboardRuleText.includes('2 квартиры');
+  await page.locator('[data-open-chessboard="images"]').click();
+  await page.locator('#chessboard-clear').click();
+  await page.locator('#apply-chessboard').click();
+
+  const dragOrderBefore = await page.locator('#image-gallery [data-image-drag]').evaluateAll((cards) => cards.map((card) => card.dataset.imageDrag));
+  let imageMouseDragWorks = false;
+  if (dragOrderBefore.length >= 2) {
+    const source = page.locator(`#image-gallery [data-image-drag="${dragOrderBefore[0]}"]`);
+    const target = page.locator(`#image-gallery [data-image-drag="${dragOrderBefore[1]}"]`);
+    const targetBox = await target.boundingBox();
+    await source.dragTo(target, { targetPosition: { x: Math.max(2, targetBox.width - 3), y: Math.max(2, targetBox.height / 2) } });
+    const dragOrderAfter = await page.locator('#image-gallery [data-image-drag]').evaluateAll((cards) => cards.map((card) => card.dataset.imageDrag));
+    imageMouseDragWorks = dragOrderAfter[0] === dragOrderBefore[1] && dragOrderAfter[1] === dragOrderBefore[0];
+    const moved = page.locator(`#image-gallery [data-image-drag="${dragOrderBefore[0]}"]`);
+    const restoreTarget = page.locator(`#image-gallery [data-image-drag="${dragOrderBefore[1]}"]`);
+    const restoreBox = await restoreTarget.boundingBox();
+    await moved.dragTo(restoreTarget, { targetPosition: { x: 2, y: Math.max(2, restoreBox.height / 2) } });
+  }
   const imageIndividualBefore = await page.locator('#image-individual-rules .individual-rule').count();
   const imageIndividualId = await page.locator('#image-individual-rules [data-open-image-individual]').first().getAttribute('data-open-image-individual');
   await page.locator('#image-individual-rules [data-open-image-individual]').first().click();
@@ -586,6 +638,15 @@ const contentTypes = {
   const promotionFilteredMatchCount = Number(await page.locator('.match-heading strong').innerText());
   const promotionMultiFiltersWork = floorMultiSummary.includes('2') && apartmentMultiSummary.includes('2') &&
     promotionFilteredMatchCount === promotionTargets.length;
+  await page.locator('[data-open-chessboard="promotions"]').click();
+  await page.locator('[data-chessboard-id]').first().check();
+  await page.locator('#apply-chessboard').click();
+  const promotionChessboardExactCount = Number(await page.locator('.match-heading strong').innerText());
+  const promotionChessboardButtonText = await page.locator('[data-open-chessboard="promotions"]').innerText();
+  const promotionChessboardWorks = promotionChessboardExactCount === 1 && promotionChessboardButtonText.includes('1');
+  await page.locator('[data-open-chessboard="promotions"]').click();
+  await page.locator('#chessboard-clear').click();
+  await page.locator('#apply-chessboard').click();
   await page.screenshot({ path: path.join(os.tmpdir(), 'feed-studio-promotion-multi-filters-qa.png'), fullPage: true });
 
   await page.locator('[data-view="assets"]').click();
@@ -629,7 +690,7 @@ const contentTypes = {
   await page.waitForFunction(() => window.localStorage.getItem('feed-studio-publish-v1-novyy-gorizont'));
 
   const result = {
-    ok: errors.length === 0 && loadingIndicatorAvailable && projectSessionCacheWorks && redundantDraftCleared && emptyPublishDisabled && !emptyDraftStatus.includes('не применён') && publishedChangesModalVisible && publishedChangesCount >= 2 && publishedChangesButtonText.includes(String(publishedChangesCount)) && publishedChangeCategories.includes('Акции') && publishedChangeCategories.includes('Материалы') && publishedChangesReadOnly && publishedChangeDate.includes('Опубликованная версия') && publishedChangeDetailsWork && projectSwitchingWorks && projectRefreshPersistenceWorks && sourceFeedSettingWorks && staleManualDateHidden && sourceStateText.includes('Источник проверен') && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 5 && activeBefore === 2 && unusedDeleteAvailable && unusedMaterialDeleted && builtInDeleteAvailable && builtInMaterialDeleted && cardsAfterMaterialDelete === initialCards - 1 && selectedMaterialDeleteButtons === 0 && visibleProfitbaseMentions === 0 && selectedLibrary.some((text) => text.includes('Рендер в макете')) && cardsAfterUpload === initialCards - 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 4 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.includes('Основной') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && materialWorkspacePreviewVisible && cardOptionsDefaultOn && logoPanelDefaultOff && logoPanelToggleWorks && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.backgroundRender === 'uploads/mat-qa-library.webp' && liveMaterialPreview.showRender === 'false' && liveMaterialPreview.color === '#123ABC' && liveMaterialPreview.houseBadge === 'false' && liveMaterialPreview.decoration === 'false' && liveMaterialPreview.logoPanel === 'false' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && imagePlanOptions > 1 && /^plan-[0-9a-f]{12}$/.test(selectedImagePlan) && selectedImagePlanCount > 0 && imagePlanRuleCreated && imageRuleStartsCollapsed && imageRuleExpanded && imageRuleScopeDetailed && imageRuleActionDetailed && bulkAddedImageMoved && individualParameterOptions === 11 && bulkParameterOptions === 12 && bulkDescriptionShortcodeExcluded && bulkDescriptionStartsEmpty && bulkDescriptionExpandVisible && bulkDescriptionModalVisible && bulkDescriptionModalSize.width > 700 && bulkDescriptionModalSize.height >= 320 && bulkDescriptionModalShortcodeInserted && bulkDescriptionContentPreserved && bulkDescriptionEscapeCloses && parameterRuleCreated && parameterRuleStartsCollapsed && parameterRuleExpanded && parameterRuleScopeDetailed && parameterRuleActionDetailed && descriptionEditorVisible && descriptionShortcodes >= 5 && descriptionShortcodeExcluded && addressShownFully && descriptionPreviewVisible && descriptionBlocksNormalized && descriptionFormattingPreserved && descriptionTemplateKept && descriptionResolved && roomsParameterAvailable && requiredTextParametersAvailable && addressStartsFromSource && developmentInputIsText && requiredTextParametersEditable && roomsStartsFromSource && studioRoomAvailable && roomValuesLimitedToFive && studioRoomFilterAvailable && roomsShortcodeUsesOverride && studioFilterMatchesOverride && planOptions > 1 && parameterToolbarLayout.planWidth <= 270 && parameterToolbarLayout.singleRow && /^plan-[0-9a-f]{12}$/.test(selectedPlan) && selectedPlanCount > 0 && parameterLotContextWorks && parameterIndividualBefore === 1 && parameterIndividualLabels.includes('Описание') && parameterIndividualLabels.includes('Количество комнат') && parameterIndividualLabels.includes('ID новостройки') && parameterIndividualLabels.includes('Адрес') && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && promotionMultiFiltersWork && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && mobilePublishedModal.visible && mobilePublishedModal.width === mobilePublishedModal.viewportWidth && mobilePublishedModal.height === mobilePublishedModal.viewportHeight && mobilePublishedModal.overflow <= 1 && excludedCardMarked === 1 && submitted && submitted.version === 4 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.rules.some((rule) => promotionTargets.every((target) => rule.floors.includes(String(target.floor)) && rule.apartment_numbers.includes(String(target.source_values.ApartmentNumber)))) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.background_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor) && submitted.card_settings.show_key_render === false && submitted.card_settings.show_house_badge === false && submitted.card_settings.show_decoration === false && submitted.card_settings.show_logo_panel === false,
+    ok: errors.length === 0 && apartmentFilterSectionsAvailable && apartmentFilterWorks && chessboardSelectionWorks && imageMouseDragWorks && promotionChessboardWorks && loadingIndicatorAvailable && projectSessionCacheWorks && redundantDraftCleared && emptyPublishDisabled && !emptyDraftStatus.includes('не применён') && publishedChangesModalVisible && publishedChangesCount >= 2 && publishedChangesButtonText.includes(String(publishedChangesCount)) && publishedChangeCategories.includes('Акции') && publishedChangeCategories.includes('Материалы') && publishedChangesReadOnly && publishedChangeDate.includes('Опубликованная версия') && publishedChangeDetailsWork && projectSwitchingWorks && projectRefreshPersistenceWorks && sourceFeedSettingWorks && staleManualDateHidden && sourceStateText.includes('Источник проверен') && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 5 && activeBefore === 2 && unusedDeleteAvailable && unusedMaterialDeleted && builtInDeleteAvailable && builtInMaterialDeleted && cardsAfterMaterialDelete === initialCards - 1 && selectedMaterialDeleteButtons === 0 && visibleProfitbaseMentions === 0 && selectedLibrary.some((text) => text.includes('Рендер в макете')) && cardsAfterUpload === initialCards - 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 4 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.includes('Основной') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && materialWorkspacePreviewVisible && cardOptionsDefaultOn && logoPanelDefaultOff && logoPanelToggleWorks && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.backgroundRender === 'uploads/mat-qa-library.webp' && liveMaterialPreview.showRender === 'false' && liveMaterialPreview.color === '#123ABC' && liveMaterialPreview.houseBadge === 'false' && liveMaterialPreview.decoration === 'false' && liveMaterialPreview.logoPanel === 'false' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && imagePlanOptions > 1 && /^plan-[0-9a-f]{12}$/.test(selectedImagePlan) && selectedImagePlanCount > 0 && imagePlanRuleCreated && imageRuleStartsCollapsed && imageRuleExpanded && imageRuleScopeDetailed && imageRuleActionDetailed && bulkAddedImageMoved && individualParameterOptions === 11 && bulkParameterOptions === 12 && bulkDescriptionShortcodeExcluded && bulkDescriptionStartsEmpty && bulkDescriptionExpandVisible && bulkDescriptionModalVisible && bulkDescriptionModalSize.width > 700 && bulkDescriptionModalSize.height >= 320 && bulkDescriptionModalShortcodeInserted && bulkDescriptionContentPreserved && bulkDescriptionEscapeCloses && parameterRuleCreated && parameterRuleStartsCollapsed && parameterRuleExpanded && parameterRuleScopeDetailed && parameterRuleActionDetailed && descriptionEditorVisible && descriptionShortcodes >= 5 && descriptionShortcodeExcluded && addressShownFully && descriptionPreviewVisible && descriptionBlocksNormalized && descriptionFormattingPreserved && descriptionTemplateKept && descriptionResolved && roomsParameterAvailable && requiredTextParametersAvailable && addressStartsFromSource && developmentInputIsText && requiredTextParametersEditable && roomsStartsFromSource && studioRoomAvailable && roomValuesLimitedToFive && studioRoomFilterAvailable && roomsShortcodeUsesOverride && studioFilterMatchesOverride && planOptions > 1 && parameterToolbarLayout.planWidth <= 270 && parameterToolbarLayout.singleRow && /^plan-[0-9a-f]{12}$/.test(selectedPlan) && selectedPlanCount > 0 && parameterLotContextWorks && parameterIndividualBefore === 1 && parameterIndividualLabels.includes('Описание') && parameterIndividualLabels.includes('Количество комнат') && parameterIndividualLabels.includes('ID новостройки') && parameterIndividualLabels.includes('Адрес') && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && promotionMultiFiltersWork && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && mobilePublishedModal.visible && mobilePublishedModal.width === mobilePublishedModal.viewportWidth && mobilePublishedModal.height === mobilePublishedModal.viewportHeight && mobilePublishedModal.overflow <= 1 && excludedCardMarked === 1 && submitted && submitted.version === 4 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.rules.some((rule) => promotionTargets.every((target) => rule.floors.includes(String(target.floor)) && rule.apartment_numbers.includes(String(target.source_values.ApartmentNumber)))) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.background_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor) && submitted.card_settings.show_key_render === false && submitted.card_settings.show_house_badge === false && submitted.card_settings.show_decoration === false && submitted.card_settings.show_logo_panel === false,
     errors,
     empty_draft: {
       cleared: redundantDraftCleared,
@@ -743,6 +804,15 @@ const contentTypes = {
       apartment_summary: apartmentMultiSummary,
       match_count: promotionFilteredMatchCount,
       works: promotionMultiFiltersWork
+    },
+    lot_selection: {
+      apartment_filter_sections_available: apartmentFilterSectionsAvailable,
+      apartment_filter_count: apartmentFilterCount,
+      apartment_filter_works: apartmentFilterWorks,
+      chessboard_selected_ids: chessboardChosenIds,
+      chessboard_works: chessboardSelectionWorks,
+      image_mouse_drag_works: imageMouseDragWorks,
+      promotion_chessboard_works: promotionChessboardWorks
     },
     image_plan_filter: {
       options: imagePlanOptions,

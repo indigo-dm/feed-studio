@@ -27,9 +27,12 @@
     changeReviewItems: [],
     activeRuleId: null,
     activeView: 'dashboard',
-    filters: { house: '', rooms: '', floor: '', search: '' },
-    imageFilters: { house: '', rooms: '', floor: '', plan: '', search: '' },
-    parameterFilters: { house: '', rooms: '', floor: '', plan: '', search: '' },
+    filters: { house: '', rooms: '', floor: '', search: '', apartment_numbers: [], selection_ids: [] },
+    imageFilters: { house: '', rooms: '', floor: '', plan: '', search: '', apartment_numbers: [], selection_ids: [] },
+    parameterFilters: { house: '', rooms: '', floor: '', plan: '', search: '', apartment_numbers: [], selection_ids: [] },
+    chessboardContext: '',
+    chessboardDraftIds: [],
+    chessboardSearch: '',
     page: 1,
     pageSize: 12,
     previewId: null,
@@ -192,6 +195,8 @@
   var expandedDescriptionEditor = null;
   var emptyImageSettings = function () { return { lot_overrides: {}, bulk_rules: [] }; };
   var emptyParameterSettings = function () { return { lot_values: {}, bulk_rules: [] }; };
+  var emptyLotFilters = function () { return { house: '', rooms: '', floor: '', search: '', apartment_numbers: [], selection_ids: [] }; };
+  var emptyMediaFilters = function () { return { house: '', rooms: '', floor: '', plan: '', search: '', apartment_numbers: [], selection_ids: [] }; };
   var emptyMaterialSettings = function () {
     return { logo: '', key_render: '', background_render: '', primary_color: '', background_color: '', text_color: '', subtitle_color: '', palette: [] };
   };
@@ -238,10 +243,14 @@
 
   function itemMatchesFilters(item, filters) {
     var search = String(filters.search || '').trim().toLowerCase();
+    var apartmentNumbers = Array.isArray(filters.apartment_numbers) ? filters.apartment_numbers.map(String) : [];
+    var selectionIds = Array.isArray(filters.selection_ids) ? filters.selection_ids.map(String) : [];
     return (!filters.house || item.house_id === filters.house) &&
       (!filters.rooms || effectiveRoomsForItem(item) === filters.rooms) &&
       (!filters.floor || String(item.floor) === filters.floor) &&
       (!filters.plan || String(item.plan_id) === filters.plan) &&
+      (!apartmentNumbers.length || apartmentNumbers.indexOf(apartmentNumberForItem(item)) >= 0) &&
+      (!selectionIds.length || selectionIds.indexOf(String(item.id)) >= 0) &&
       (!search || item.id.toLowerCase().indexOf(search) >= 0);
   }
 
@@ -261,6 +270,229 @@
     return images[0] && images[0].url ? String(images[0].url) : String(item && (item.image || item.thumbnail) || '');
   }
 
+  function availableApartmentNumbers() {
+    return Array.from(new Set(state.inventory.items.map(apartmentNumberForItem).filter(Boolean)))
+      .sort(function (left, right) { return left.localeCompare(right, 'ru', { numeric: true }); });
+  }
+
+  function restoreToolbarApartmentFilter(rootId, query) {
+    var details = $('#' + rootId + ' details');
+    if (!details) return;
+    details.open = true;
+    var input = $('[data-apartment-filter-search]', details);
+    if (input) {
+      input.value = query || '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.focus();
+    }
+  }
+
+  function renderToolbarApartmentFilter(rootId, filters, renderOwner) {
+    var root = $('#' + rootId);
+    if (!root) return;
+    var values = availableApartmentNumbers();
+    var selected = Array.isArray(filters.apartment_numbers) ? filters.apartment_numbers.map(String) : [];
+    if (!values.length) {
+      root.innerHTML = '<span class="toolbar-field-label">Номера квартир</span><div class="toolbar-filter-empty">Источник не передаёт</div>';
+      return;
+    }
+    root.innerHTML = '<span class="toolbar-field-label">Номера квартир</span><details class="toolbar-apartment-multi"><summary><strong data-apartment-filter-summary>' +
+      esc(selected.length ? 'Выбрано: ' + selected.length : 'Любые') + '</strong><span>Открыть</span></summary><div class="toolbar-apartment-popover">' +
+      '<input type="search" data-apartment-filter-search placeholder="Поиск по номеру">' +
+      '<div class="rule-multi-actions"><button type="button" data-apartment-filter-all>Выбрать все найденные</button>' +
+      '<button type="button" data-apartment-filter-clear>Очистить</button></div><div class="toolbar-apartment-options">' +
+      values.map(function (value) {
+        return '<label data-apartment-filter-option><input type="checkbox" value="' + esc(value) + '" ' +
+          (selected.indexOf(value) >= 0 ? 'checked' : '') + '><span>' + esc(value) + '</span></label>';
+      }).join('') + '</div></div></details>';
+    var search = $('[data-apartment-filter-search]', root);
+    search.addEventListener('input', function () {
+      var query = search.value.trim().toLocaleLowerCase('ru');
+      $$('[data-apartment-filter-option]', root).forEach(function (option) {
+        option.hidden = Boolean(query) && option.textContent.trim().toLocaleLowerCase('ru').indexOf(query) < 0;
+      });
+    });
+    $$('[data-apartment-filter-option] input', root).forEach(function (input) {
+      input.addEventListener('change', function () {
+        var query = search.value;
+        if (input.checked && filters.apartment_numbers.indexOf(input.value) < 0) filters.apartment_numbers.push(input.value);
+        if (!input.checked) filters.apartment_numbers = filters.apartment_numbers.filter(function (value) { return value !== input.value; });
+        state.page = 1;
+        renderOwner();
+        restoreToolbarApartmentFilter(rootId, query);
+      });
+    });
+    $('[data-apartment-filter-all]', root).addEventListener('click', function () {
+      var query = search.value;
+      $$('[data-apartment-filter-option]', root).filter(function (option) { return !option.hidden; }).forEach(function (option) {
+        var value = $('input', option).value;
+        if (filters.apartment_numbers.indexOf(value) < 0) filters.apartment_numbers.push(value);
+      });
+      state.page = 1;
+      renderOwner();
+      restoreToolbarApartmentFilter(rootId, query);
+    });
+    $('[data-apartment-filter-clear]', root).addEventListener('click', function () {
+      filters.apartment_numbers = [];
+      state.page = 1;
+      renderOwner();
+      restoreToolbarApartmentFilter(rootId, '');
+    });
+  }
+
+  function chessboardFiltersForContext(context) {
+    if (context === 'lots') return state.filters;
+    if (context === 'images') return state.imageFilters;
+    if (context === 'parameters') return state.parameterFilters;
+    return null;
+  }
+
+  function chessboardCandidates(context) {
+    var filters = chessboardFiltersForContext(context);
+    if (filters) {
+      var base = Object.assign({}, filters, { selection_ids: [] });
+      return state.inventory.items.filter(function (item) { return itemMatchesFilters(item, base); });
+    }
+    if (context === 'promotions') {
+      var rule = state.rules.find(function (item) { return item.id === state.activeRuleId; });
+      if (!rule) return [];
+      var withoutExactSelection = Object.assign({}, rule, { include_ids: [], exclude_ids: [] });
+      return state.inventory.items.filter(function (item) {
+        return state.excludedLotIds.indexOf(String(item.id)) < 0 && ruleMatches(item, withoutExactSelection, true);
+      });
+    }
+    return [];
+  }
+
+  function chessboardSelectedIds(context) {
+    var filters = chessboardFiltersForContext(context);
+    if (filters) return Array.isArray(filters.selection_ids) ? filters.selection_ids.map(String) : [];
+    var rule = state.rules.find(function (item) { return item.id === state.activeRuleId; });
+    return rule && Array.isArray(rule.include_ids) ? rule.include_ids.map(String) : [];
+  }
+
+  function chessboardVisibleCandidates() {
+    var query = String(state.chessboardSearch || '').trim().toLocaleLowerCase('ru');
+    return chessboardCandidates(state.chessboardContext).filter(function (item) {
+      if (!query) return true;
+      return String(item.id).toLocaleLowerCase('ru').indexOf(query) >= 0 ||
+        apartmentNumberForItem(item).toLocaleLowerCase('ru').indexOf(query) >= 0;
+    });
+  }
+
+  function renderChessboard() {
+    var root = $('#chessboard-content');
+    if (!root) return;
+    var items = chessboardVisibleCandidates();
+    var selected = new Set(state.chessboardDraftIds.map(String));
+    var hasApartmentNumbers = items.some(function (item) { return apartmentNumberForItem(item); });
+    $('#chessboard-count').textContent = selected.size ? 'Выбрано: ' + selected.size : 'Без ограничения';
+    $('#chessboard-note').textContent = hasApartmentNumbers
+      ? 'Строки сгруппированы по этажам. Секции и отсутствующие в фиде квартиры не восстанавливаются.'
+      : 'Исходный фид не передаёт номера квартир — показываем ID лотов.';
+    if (!items.length) {
+      root.innerHTML = '<div class="chessboard-empty">По текущим фильтрам квартир нет.</div>';
+      return;
+    }
+    var houses = new Map();
+    items.forEach(function (item) {
+      var houseKey = String(item.house_id || item.house || 'house');
+      if (!houses.has(houseKey)) houses.set(houseKey, { key: houseKey, name: item.house || 'Дом', floors: new Map() });
+      var floorKey = String(item.floor || 'Не передан');
+      var house = houses.get(houseKey);
+      if (!house.floors.has(floorKey)) house.floors.set(floorKey, []);
+      house.floors.get(floorKey).push(item);
+    });
+    root.innerHTML = Array.from(houses.values()).map(function (house) {
+      var floors = Array.from(house.floors.entries()).sort(function (left, right) {
+        return Number(right[0]) - Number(left[0]) || right[0].localeCompare(left[0], 'ru', { numeric: true });
+      });
+      return '<section class="chessboard-house"><h3>' + esc(house.name) + '</h3>' + floors.map(function (entry) {
+        var floor = entry[0];
+        var floorItems = entry[1].slice().sort(function (left, right) {
+          return apartmentNumberForItem(left).localeCompare(apartmentNumberForItem(right), 'ru', { numeric: true }) ||
+            String(left.id).localeCompare(String(right.id), 'ru', { numeric: true });
+        });
+        return '<div class="chessboard-floor"><div class="chessboard-floor-label"><strong>' + esc(floor === 'Не передан' ? floor : floor + ' этаж') +
+          '</strong><button type="button" data-chessboard-house="' + esc(house.key) + '" data-chessboard-floor="' + esc(floor) + '">Выбрать этаж</button></div>' +
+          '<div class="chessboard-lots">' + floorItems.map(function (item) {
+            var apartment = apartmentNumberForItem(item);
+            var thumbnail = planThumbnailForItem(item);
+            return '<label class="chessboard-lot ' + (selected.has(String(item.id)) ? 'selected' : '') + '">' +
+              '<input type="checkbox" data-chessboard-id="' + esc(item.id) + '" ' + (selected.has(String(item.id)) ? 'checked' : '') + '>' +
+              '<span class="chessboard-lot-image">' + (thumbnail ? '<img src="' + esc(thumbnail) + '" alt="" loading="lazy" decoding="async">' : '<i>Нет изображения</i>') + '</span>' +
+              '<span class="chessboard-lot-copy"><strong>' + esc(apartment ? 'Кв. ' + apartment : 'ID ' + item.id) + '</strong>' +
+              '<small>' + esc(roomShortLabel(effectiveRoomsForItem(item)) + ' · ' + formatArea(item.area)) + '</small>' +
+              (apartment ? '<em>ID ' + esc(item.id) + '</em>' : '') + '</span></label>';
+          }).join('') + '</div></div>';
+      }).join('') + '</section>';
+    }).join('');
+    $$('[data-chessboard-id]', root).forEach(function (input) {
+      input.addEventListener('change', function () {
+        var id = String(input.dataset.chessboardId);
+        if (input.checked && state.chessboardDraftIds.indexOf(id) < 0) state.chessboardDraftIds.push(id);
+        if (!input.checked) state.chessboardDraftIds = state.chessboardDraftIds.filter(function (value) { return value !== id; });
+        renderChessboard();
+      });
+    });
+    $$('[data-chessboard-floor]', root).forEach(function (button) {
+      button.addEventListener('click', function () {
+        items.filter(function (item) {
+          return String(item.house_id || item.house || 'house') === button.dataset.chessboardHouse &&
+            String(item.floor || 'Не передан') === button.dataset.chessboardFloor;
+        })
+          .forEach(function (item) {
+            if (state.chessboardDraftIds.indexOf(String(item.id)) < 0) state.chessboardDraftIds.push(String(item.id));
+          });
+        renderChessboard();
+      });
+    });
+  }
+
+  function updateChessboardButton(context) {
+    var button = $('[data-open-chessboard="' + context + '"]');
+    if (!button) return;
+    var selected = chessboardSelectedIds(context);
+    button.textContent = selected.length ? 'Шахматка: выбрано ' + selected.length : 'Выбрать в шахматке';
+    button.classList.toggle('has-selection', selected.length > 0);
+  }
+
+  function openChessboard(context) {
+    state.chessboardContext = context;
+    state.chessboardDraftIds = chessboardSelectedIds(context);
+    state.chessboardSearch = '';
+    $('#chessboard-search').value = '';
+    $('#chessboard-modal').classList.remove('hidden');
+    document.body.classList.add('chessboard-modal-open');
+    renderChessboard();
+  }
+
+  function closeChessboard() {
+    $('#chessboard-modal').classList.add('hidden');
+    document.body.classList.remove('chessboard-modal-open');
+  }
+
+  function applyChessboardSelection() {
+    var ids = Array.from(new Set(state.chessboardDraftIds.map(String)));
+    var filters = chessboardFiltersForContext(state.chessboardContext);
+    if (filters) {
+      filters.selection_ids = ids;
+      state.page = 1;
+      if (state.chessboardContext === 'lots') renderLots();
+      if (state.chessboardContext === 'images') renderImages();
+      if (state.chessboardContext === 'parameters') renderParameters();
+    } else if (state.chessboardContext === 'promotions') {
+      var rule = state.rules.find(function (item) { return item.id === state.activeRuleId; });
+      if (rule) {
+        rule.include_ids = ids;
+        setDirty(true);
+        renderAll();
+      }
+    }
+    closeChessboard();
+    showToast(ids.length ? 'Выбрано квартир: ' + ids.length : 'Точный выбор снят');
+  }
+
   function ruleMatchesSimple(item, rule) {
     if ((rule.exclude_ids || []).indexOf(String(item.id)) >= 0) return false;
     if ((rule.include_ids || []).length && (rule.include_ids || []).indexOf(String(item.id)) < 0) return false;
@@ -275,14 +507,17 @@
   }
 
   function filterRuleFrom(filters, items) {
+    var hasExactSelection = Boolean(filters.search) ||
+      (Array.isArray(filters.apartment_numbers) && filters.apartment_numbers.length > 0) ||
+      (Array.isArray(filters.selection_ids) && filters.selection_ids.length > 0);
     return {
-      house_ids: filters.house ? [filters.house] : [],
-      rooms: filters.rooms ? [filters.rooms] : [],
-      floors: filters.floor ? [filters.floor] : [],
-      plan_ids: filters.plan ? [filters.plan] : [],
+      house_ids: !hasExactSelection && filters.house ? [filters.house] : [],
+      rooms: !hasExactSelection && filters.rooms ? [filters.rooms] : [],
+      floors: !hasExactSelection && filters.floor ? [filters.floor] : [],
+      plan_ids: !hasExactSelection && filters.plan ? [filters.plan] : [],
       area_min: null,
       area_max: null,
-      include_ids: filters.search ? items.map(function (item) { return item.id; }) : [],
+      include_ids: hasExactSelection ? items.map(function (item) { return item.id; }) : [],
       exclude_ids: []
     };
   }
@@ -1086,7 +1321,7 @@
       return;
     }
     if (section === 'images') {
-      state.imageFilters = { house: '', rooms: '', floor: '', plan: '', search: String(id) };
+      state.imageFilters = Object.assign(emptyMediaFilters(), { search: String(id) });
       state.imageLotId = String(id);
       $('#image-filter-house').value = '';
       $('#image-filter-rooms').value = '';
@@ -1099,7 +1334,7 @@
       return;
     }
     if (section === 'parameters') {
-      state.parameterFilters = { house: '', rooms: '', floor: '', plan: '', search: String(id) };
+      state.parameterFilters = Object.assign(emptyMediaFilters(), { search: String(id) });
       state.parameterLotId = String(id);
       $('#parameter-filter-house').value = '';
       $('#parameter-filter-rooms').value = '';
@@ -1491,6 +1726,8 @@
   }
 
   function renderLots() {
+    renderToolbarApartmentFilter('lot-apartment-filter', state.filters, renderLots);
+    updateChessboardButton('lots');
     var items = state.inventory.items.filter(function (item) { return itemMatchesFilters(item, state.filters); });
     $('#lots-count').textContent = items.length;
     var pageCount = Math.max(1, Math.ceil(items.length / state.pageSize));
@@ -2135,6 +2372,8 @@
 
   function renderImages() {
     if (!state.inventory) return;
+    renderToolbarApartmentFilter('image-apartment-filter', state.imageFilters, renderImages);
+    updateChessboardButton('images');
     var filtered = filteredImageItems();
     $('#image-filter-count').textContent = filtered.length;
     if (!filtered.some(function (item) { return item.id === state.imageLotId; })) state.imageLotId = filtered[0] ? filtered[0].id : null;
@@ -2156,8 +2395,9 @@
       var imageUrl = image.kind === 'generated' ? versionedUrl(image.url) : image.url;
       var deleteUpload = managedUploadPath(item, image) ? '<button class="delete-upload" data-delete-upload="' + esc(image.id) +
         '" title="Физически удалить загруженный файл">Удалить файл</button>' : '';
-      return '<article class="image-item"><div class="image-item-preview"><img src="' + esc(imageUrl) + '" alt="Изображение ' +
-        (index + 1) + '" loading="lazy" decoding="async"><span class="image-position">' + (index + 1) + '</span><span class="image-kind">' +
+      return '<article class="image-item" draggable="true" data-image-drag="' + esc(image.id) + '" aria-label="Изображение ' + (index + 1) +
+        '. Можно перетащить мышью"><div class="image-item-preview"><img src="' + esc(imageUrl) + '" alt="Изображение ' +
+        (index + 1) + '" loading="lazy" decoding="async"><span class="image-position">' + (index + 1) + '</span><span class="image-drag-handle">⋮⋮ Перетащить</span><span class="image-kind">' +
         esc(image.kind === 'generated' ? 'Feed Studio' : image.kind === 'source' ? 'Исходный фид' : 'Добавлено') +
         '</span></div><div class="image-item-copy"><small title="' + esc(image.label) + '">' + esc(image.label) +
         '</small><div class="image-actions"><button data-image-left="' + esc(image.id) + '" ' + (index === 0 ? 'disabled' : '') +
@@ -2171,6 +2411,52 @@
       setDirty(true);
       renderImages();
     }
+    var draggedImageId = '';
+    $$('[data-image-drag]', $('#image-gallery')).forEach(function (card) {
+      card.addEventListener('dragstart', function (event) {
+        if (event.target.closest && event.target.closest('button')) {
+          event.preventDefault();
+          return;
+        }
+        draggedImageId = String(card.dataset.imageDrag);
+        card.classList.add('dragging');
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', draggedImageId);
+      });
+      card.addEventListener('dragover', function (event) {
+        if (!draggedImageId || draggedImageId === String(card.dataset.imageDrag)) return;
+        event.preventDefault();
+        var bounds = card.getBoundingClientRect();
+        var after = event.clientX > bounds.left + bounds.width / 2;
+        card.classList.toggle('drag-before', !after);
+        card.classList.toggle('drag-after', after);
+        event.dataTransfer.dropEffect = 'move';
+      });
+      card.addEventListener('dragleave', function () {
+        card.classList.remove('drag-before', 'drag-after');
+      });
+      card.addEventListener('drop', function (event) {
+        event.preventDefault();
+        var targetId = String(card.dataset.imageDrag);
+        var sourceId = draggedImageId || event.dataTransfer.getData('text/plain');
+        if (!sourceId || sourceId === targetId) return;
+        var bounds = card.getBoundingClientRect();
+        var after = event.clientX > bounds.left + bounds.width / 2;
+        var nextImages = images.slice();
+        var sourceIndex = nextImages.findIndex(function (image) { return image.id === sourceId; });
+        if (sourceIndex < 0) return;
+        var moved = nextImages.splice(sourceIndex, 1)[0];
+        var targetIndex = nextImages.findIndex(function (image) { return image.id === targetId; });
+        nextImages.splice(targetIndex + (after ? 1 : 0), 0, moved);
+        saveOrder(nextImages);
+      });
+      card.addEventListener('dragend', function () {
+        draggedImageId = '';
+        $$('[data-image-drag]', $('#image-gallery')).forEach(function (itemCard) {
+          itemCard.classList.remove('dragging', 'drag-before', 'drag-after');
+        });
+      });
+    });
     $$('[data-image-left]', $('#image-gallery')).forEach(function (button) {
       button.addEventListener('click', function () {
         var index = images.findIndex(function (image) { return image.id === button.dataset.imageLeft; });
@@ -2614,6 +2900,8 @@
 
   function renderParameters() {
     if (!state.inventory) return;
+    renderToolbarApartmentFilter('parameter-apartment-filter', state.parameterFilters, renderParameters);
+    updateChessboardButton('parameters');
     var tagCounts = state.inventory.source_tag_counts || {};
     var tags = Object.keys(tagCounts).sort();
     $('#source-tags-count').textContent = tags.length + ' тегов';
@@ -2833,6 +3121,8 @@
       '<label class="field"><span>Текст на изображении</span><input data-field="text" value="' + esc(rule.text) + '" maxlength="60"></label>' +
       '<div class="field field-wide"><span>Статус</span><div class="switch-row"><label class="switch"><input type="checkbox" data-field="enabled" ' +
       (rule.enabled ? 'checked' : '') + '><span></span></label><strong>' + (rule.enabled ? 'Акция включена' : 'Акция выключена') + '</strong></div></div>' +
+      '<div class="field field-wide rule-chessboard-field"><span>Точный выбор квартир</span><button class="button button-secondary lot-chessboard-button" type="button" data-open-chessboard="promotions">' +
+      (rule.include_ids.length ? 'Шахматка: выбрано ' + rule.include_ids.length : 'Выбрать в шахматке') + '</button><small>Выбранные квартиры сохраняются по ID и дополнительно учитывают условия ниже.</small></div>' +
       '<div class="field field-wide"><span>Дома · ничего не выбрано = все</span><div class="check-group">' +
       chips('house_ids', houses, rule.house_ids, houseLabels) + '</div></div>' +
       '<div class="field field-wide"><span>Комнатность · ничего не выбрано = любая</span><div class="check-group">' +
@@ -2852,6 +3142,8 @@
           '</strong><small>ID ' + esc(item.id) + '</small></div><button class="exclude-button ' + (excluded ? 'excluded' : '') +
           '" data-exclude="' + esc(item.id) + '">' + (excluded ? 'Вернуть' : 'Исключить') + '</button></div>';
       }).join('') : '<div class="empty-state">Нет подходящих квартир.</div>') + '</div></div>';
+
+    $('[data-open-chessboard="promotions"]', editor).addEventListener('click', function () { openChessboard('promotions'); });
 
     $$('[data-field]', editor).forEach(function (input) {
       var eventName = input.type === 'text' ? 'input' : 'change';
@@ -3491,6 +3783,29 @@
     $$('[data-go]').forEach(function (button) {
       button.addEventListener('click', function () { navigate(button.dataset.go); });
     });
+    $$('[data-open-chessboard]').forEach(function (button) {
+      button.addEventListener('click', function () { openChessboard(button.dataset.openChessboard); });
+    });
+    $('#close-chessboard').addEventListener('click', closeChessboard);
+    $('#cancel-chessboard').addEventListener('click', closeChessboard);
+    $('#apply-chessboard').addEventListener('click', applyChessboardSelection);
+    $('#chessboard-modal').addEventListener('click', function (event) {
+      if (event.target.id === 'chessboard-modal') closeChessboard();
+    });
+    $('#chessboard-search').addEventListener('input', function (event) {
+      state.chessboardSearch = event.target.value;
+      renderChessboard();
+    });
+    $('#chessboard-select-visible').addEventListener('click', function () {
+      chessboardVisibleCandidates().forEach(function (item) {
+        if (state.chessboardDraftIds.indexOf(String(item.id)) < 0) state.chessboardDraftIds.push(String(item.id));
+      });
+      renderChessboard();
+    });
+    $('#chessboard-clear').addEventListener('click', function () {
+      state.chessboardDraftIds = [];
+      renderChessboard();
+    });
     $('#filter-house').addEventListener('change', function (event) { state.filters.house = event.target.value; state.page = 1; renderLots(); });
     $('#filter-rooms').addEventListener('change', function (event) { state.filters.rooms = event.target.value; state.page = 1; renderLots(); });
     $('#filter-floor').addEventListener('change', function (event) { state.filters.floor = event.target.value; state.page = 1; renderLots(); });
@@ -3622,7 +3937,8 @@
     });
     document.addEventListener('keydown', function (event) {
       if (event.key !== 'Escape') return;
-      if (!$('#description-modal').classList.contains('hidden')) closeExpandedDescriptionEditor();
+      if (!$('#chessboard-modal').classList.contains('hidden')) closeChessboard();
+      else if (!$('#description-modal').classList.contains('hidden')) closeExpandedDescriptionEditor();
       else if (!$('#published-changes-modal').classList.contains('hidden')) $('#published-changes-modal').classList.add('hidden');
       else if (!$('#changes-modal').classList.contains('hidden')) $('#changes-modal').classList.add('hidden');
     });
@@ -3834,9 +4150,9 @@
       state.sourceFeedStatus = null;
       state.sourceFeedBusy = false;
       state.page = 1;
-      state.filters = { house: '', rooms: '', floor: '', search: '' };
-      state.imageFilters = { house: '', rooms: '', floor: '', plan: '', search: '' };
-      state.parameterFilters = { house: '', rooms: '', floor: '', plan: '', search: '' };
+      state.filters = emptyLotFilters();
+      state.imageFilters = emptyMediaFilters();
+      state.parameterFilters = emptyMediaFilters();
       populateFilters();
       renderAll();
       navigate(state.activeView);
@@ -3907,9 +4223,9 @@
       state.materialUploadMessage = '';
       state.materialUploadTone = '';
       state.materialPreviewId = null;
-      state.filters = { house: '', rooms: '', floor: '', search: '' };
-      state.imageFilters = { house: '', rooms: '', floor: '', plan: '', search: '' };
-      state.parameterFilters = { house: '', rooms: '', floor: '', plan: '', search: '' };
+      state.filters = emptyLotFilters();
+      state.imageFilters = emptyMediaFilters();
+      state.parameterFilters = emptyMediaFilters();
       populateFilters();
       renderAll();
       navigate('assets');
