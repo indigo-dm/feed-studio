@@ -192,6 +192,10 @@
     id: 'ID лота', house: 'Дом', rooms: 'Комнат', area: 'Площадь', floor: 'Этаж', floors: 'Этажей в доме',
     price: 'Цена', decoration: 'Отделка'
   };
+  var shortcodeCanonicalAliases = {
+    id: 'Id', rooms: 'Rooms', area: 'Square', floor: 'Floor', floors: 'Floors',
+    price: 'Price', decoration: 'Decoration'
+  };
   var expandedDescriptionEditor = null;
   var emptyImageSettings = function () { return { lot_overrides: {}, bulk_rules: [] }; };
   var emptyParameterSettings = function () { return { lot_values: {}, bulk_rules: [] }; };
@@ -2600,7 +2604,9 @@
     var values = descriptionValues(item);
     var preferred = ['Rooms', 'Square', 'Floor', 'Floors', 'Price', 'Decoration', 'Address', 'Id', 'NewDevelopmentId'];
     var keys = Object.keys(values).filter(function (key) {
-      return key !== DESCRIPTION_TAG && values[key] != null && String(values[key]).trim();
+      if (key === DESCRIPTION_TAG || values[key] == null || !String(values[key]).trim()) return false;
+      var canonical = shortcodeCanonicalAliases[key];
+      return !canonical || values[canonical] == null || !String(values[canonical]).trim();
     });
     keys.sort(function (left, right) {
       var leftIndex = preferred.indexOf(left); var rightIndex = preferred.indexOf(right);
