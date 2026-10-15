@@ -246,6 +246,17 @@
     return String(values.Rooms != null ? values.Rooms : item.rooms || '');
   }
 
+  function apartmentNumberForItem(item) {
+    var values = item && item.source_values && typeof item.source_values === 'object' ? item.source_values : {};
+    return String(values.ApartmentNumber || '').trim();
+  }
+
+  function planThumbnailForItem(item) {
+    var images = item && Array.isArray(item.source_images) ? item.source_images : [];
+    if (typeof images[0] === 'string') return images[0];
+    return images[0] && images[0].url ? String(images[0].url) : String(item && (item.image || item.thumbnail) || '');
+  }
+
   function ruleMatchesSimple(item, rule) {
     if ((rule.exclude_ids || []).indexOf(String(item.id)) >= 0) return false;
     if ((rule.include_ids || []).length && (rule.include_ids || []).indexOf(String(item.id)) < 0) return false;
@@ -356,6 +367,8 @@
       text: '−10 000 ₽/м²',
       house_ids: [],
       rooms: [],
+      floors: [],
+      apartment_numbers: [],
       area_min: null,
       area_max: null,
       starts_at: '',
@@ -374,6 +387,8 @@
       text: String(rule.text || '').slice(0, 60),
       house_ids: Array.isArray(rule.house_ids) ? rule.house_ids.map(String) : [],
       rooms: Array.isArray(rule.rooms) ? rule.rooms.map(String) : [],
+      floors: Array.isArray(rule.floors) ? rule.floors.map(String) : [],
+      apartment_numbers: Array.isArray(rule.apartment_numbers) ? rule.apartment_numbers.map(String) : [],
       area_min: rule.area_min === '' || rule.area_min == null ? null : Number(rule.area_min),
       area_max: rule.area_max === '' || rule.area_max == null ? null : Number(rule.area_max),
       starts_at: String(rule.starts_at || ''),
@@ -770,6 +785,8 @@
     if (rule.include_ids.length && rule.include_ids.indexOf(String(item.id)) < 0) return false;
     if (rule.house_ids.length && rule.house_ids.indexOf(String(item.house_id)) < 0) return false;
     if (rule.rooms.length && rule.rooms.indexOf(effectiveRoomsForItem(item)) < 0) return false;
+    if ((rule.floors || []).length && rule.floors.indexOf(String(item.floor)) < 0) return false;
+    if ((rule.apartment_numbers || []).length && rule.apartment_numbers.indexOf(apartmentNumberForItem(item)) < 0) return false;
     var area = Number(item.area);
     if (rule.area_min != null && area < Number(rule.area_min)) return false;
     if (rule.area_max != null && area > Number(rule.area_max)) return false;
@@ -2287,6 +2304,30 @@
     });
   }
 
+  function renderParameterLotContext(item) {
+    var root = $('#parameter-lot-context');
+    if (!root) return;
+    if (!item) {
+      root.innerHTML = '';
+      root.classList.add('hidden');
+      return;
+    }
+    var apartmentNumber = apartmentNumberForItem(item);
+    var floor = String(item.floor || '').trim();
+    var floors = String(item.floors || '').trim();
+    var floorLabel = floor || 'Не передан';
+    if (floor && floors) floorLabel += ' / ' + floors;
+    var image = planThumbnailForItem(item);
+    root.classList.remove('hidden');
+    root.innerHTML = '<div class="parameter-lot-plan">' +
+      (image ? '<img src="' + esc(image) + '" alt="Планировка квартиры ' + esc(apartmentNumber || item.id) + '" loading="lazy" decoding="async">' : '<span>Нет планировки</span>') +
+      '</div><dl class="parameter-lot-details">' +
+      '<div><dt>Этаж</dt><dd>' + esc(floorLabel) + '</dd></div>' +
+      '<div><dt>Номер квартиры</dt><dd>' + esc(apartmentNumber || 'Не передан') + '</dd></div>' +
+      '<div><dt>ID лота</dt><dd>' + esc(item.id) + '</dd></div>' +
+      '</dl>';
+  }
+
   function renderParameters() {
     if (!state.inventory) return;
     var tagCounts = state.inventory.source_tag_counts || {};
@@ -2319,6 +2360,7 @@
     var deferred = (state.inventory.parameter_catalog || []).filter(function (catalog) { return !catalog.supported; }).map(function (catalog) { return catalog.tag; });
     $('#parameter-catalog-note').textContent = deferred.length ? 'После сверки справочника Avito добавим: ' + deferred.join(', ') + '.' : '';
     if (!item) {
+      renderParameterLotContext(null);
       renderDescriptionEditor(null);
       $('#parameter-list').innerHTML = '<div class="parameter-empty">По выбранным фильтрам квартир нет.</div>';
       renderParameterBulkValue();
@@ -2326,6 +2368,7 @@
       renderParameterIndividualRules();
       return;
     }
+    renderParameterLotContext(item);
     renderDescriptionEditor(item);
     var values = effectiveParameters(item);
     var tagsWithValues = Object.keys(values).filter(function (tag) { return tag !== DESCRIPTION_TAG; });
@@ -2432,6 +2475,37 @@
     }).join('');
   }
 
+  function ruleMultiSelect(name, label, values, selected, searchable, emptyText) {
+    var selectedValues = Array.isArray(selected) ? selected.map(String) : [];
+    if (!values.length) {
+      return '<div class="field field-wide"><span>' + esc(label) + '</span><div class="rule-multi-empty">' + esc(emptyText) + '</div></div>';
+    }
+    var summary = selectedValues.length ? 'Выбрано: ' + selectedValues.length : 'Любые';
+    return '<div class="field field-wide"><span>' + esc(label) + ' · ничего не выбрано = любые</span>' +
+      '<details class="rule-multi" data-rule-multi="' + esc(name) + '"><summary><strong data-rule-multi-summary>' + esc(summary) +
+      '</strong><span>Открыть список</span></summary><div class="rule-multi-popover">' +
+      (searchable ? '<input class="rule-multi-search" type="search" data-rule-multi-search="' + esc(name) + '" placeholder="Поиск по номеру">' : '') +
+      '<div class="rule-multi-actions"><button type="button" data-rule-multi-all="' + esc(name) + '">Выбрать все' + (searchable ? ' найденные' : '') +
+      '</button><button type="button" data-rule-multi-clear="' + esc(name) + '">Очистить</button></div>' +
+      '<div class="rule-multi-options">' + values.map(function (value) {
+        var stringValue = String(value);
+        return '<label data-rule-multi-option><input type="checkbox" data-rule-multi-value="' + esc(name) + '" value="' + esc(stringValue) + '" ' +
+          (selectedValues.indexOf(stringValue) >= 0 ? 'checked' : '') + '><span>' + esc(stringValue) + '</span></label>';
+      }).join('') + '</div></div></details></div>';
+  }
+
+  function restoreRuleMultiSelect(name, query) {
+    var details = $('[data-rule-multi="' + name + '"]');
+    if (!details) return;
+    details.open = true;
+    var search = $('[data-rule-multi-search="' + name + '"]', details);
+    if (search && query) {
+      search.value = query;
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+      search.focus();
+    }
+  }
+
   function renderRuleEditor() {
     var editor = $('#rule-editor');
     var rule = state.rules.find(function (item) { return item.id === state.activeRuleId; });
@@ -2442,16 +2516,24 @@
     var houses = [];
     var houseLabels = {};
     var roomValues = [];
+    var floorValues = [];
+    var apartmentNumbers = [];
     state.inventory.items.forEach(function (item) {
       var effectiveRooms = effectiveRoomsForItem(item);
+      var floor = String(item.floor || '').trim();
+      var apartmentNumber = apartmentNumberForItem(item);
       if (houses.indexOf(item.house_id) < 0) houses.push(item.house_id);
       houseLabels[item.house_id] = item.house;
       if (roomValues.indexOf(effectiveRooms) < 0) roomValues.push(effectiveRooms);
+      if (floor && floorValues.indexOf(floor) < 0) floorValues.push(floor);
+      if (apartmentNumber && apartmentNumbers.indexOf(apartmentNumber) < 0) apartmentNumbers.push(apartmentNumber);
     });
     if (roomValues.indexOf('Студия') < 0) roomValues.push('Студия');
     roomValues.sort(function (left, right) { return roomSortValue(left) - roomSortValue(right); });
     var roomLabels = {};
     roomValues.forEach(function (room) { roomLabels[room] = isStudioRoom(room) ? 'Студии' : room + '-комнатные'; });
+    floorValues.sort(function (left, right) { return left.localeCompare(right, 'ru', { numeric: true }); });
+    apartmentNumbers.sort(function (left, right) { return left.localeCompare(right, 'ru', { numeric: true }); });
     var groupMatches = state.inventory.items.filter(function (item) {
       return state.excludedLotIds.indexOf(String(item.id)) < 0 && ruleMatches(item, rule, true);
     });
@@ -2471,6 +2553,8 @@
       chips('house_ids', houses, rule.house_ids, houseLabels) + '</div></div>' +
       '<div class="field field-wide"><span>Комнатность · ничего не выбрано = любая</span><div class="check-group">' +
       chips('rooms', roomValues, rule.rooms, roomLabels) + '</div></div>' +
+      ruleMultiSelect('floors', 'Этажи', floorValues, rule.floors, false, 'В исходном фиде нет значений этажей.') +
+      ruleMultiSelect('apartment_numbers', 'Номера квартир', apartmentNumbers, rule.apartment_numbers, true, 'Исходный фид не передаёт номера квартир.') +
       '<div class="field"><span>Площадь, м²</span><div class="field-row"><input type="number" min="0" max="500" step="0.1" data-field="area_min" placeholder="От" value="' +
       (rule.area_min == null ? '' : esc(rule.area_min)) + '"><input type="number" min="0" max="500" step="0.1" data-field="area_max" placeholder="До" value="' +
       (rule.area_max == null ? '' : esc(rule.area_max)) + '"></div></div>' +
@@ -2507,6 +2591,50 @@
         if (!input.checked) rule[field] = rule[field].filter(function (value) { return value !== input.value; });
         setDirty(true);
         renderAll();
+      });
+    });
+    $$('[data-rule-multi-search]', editor).forEach(function (input) {
+      input.addEventListener('input', function () {
+        var query = input.value.trim().toLocaleLowerCase('ru');
+        $$('[data-rule-multi-option]', input.closest('.rule-multi')).forEach(function (option) {
+          option.hidden = Boolean(query) && option.textContent.trim().toLocaleLowerCase('ru').indexOf(query) < 0;
+        });
+      });
+    });
+    $$('[data-rule-multi-value]', editor).forEach(function (input) {
+      input.addEventListener('change', function () {
+        var field = input.dataset.ruleMultiValue;
+        var queryInput = $('[data-rule-multi-search="' + field + '"]', editor);
+        var query = queryInput ? queryInput.value : '';
+        if (input.checked && rule[field].indexOf(input.value) < 0) rule[field].push(input.value);
+        if (!input.checked) rule[field] = rule[field].filter(function (value) { return value !== input.value; });
+        setDirty(true);
+        renderAll();
+        restoreRuleMultiSelect(field, query);
+      });
+    });
+    $$('[data-rule-multi-all]', editor).forEach(function (button) {
+      button.addEventListener('click', function () {
+        var field = button.dataset.ruleMultiAll;
+        var details = button.closest('.rule-multi');
+        var queryInput = $('[data-rule-multi-search="' + field + '"]', details);
+        var query = queryInput ? queryInput.value : '';
+        $$('[data-rule-multi-option]', details).filter(function (option) { return !option.hidden; }).forEach(function (option) {
+          var value = $('[data-rule-multi-value]', option).value;
+          if (rule[field].indexOf(value) < 0) rule[field].push(value);
+        });
+        setDirty(true);
+        renderAll();
+        restoreRuleMultiSelect(field, query);
+      });
+    });
+    $$('[data-rule-multi-clear]', editor).forEach(function (button) {
+      button.addEventListener('click', function () {
+        var field = button.dataset.ruleMultiClear;
+        rule[field] = [];
+        setDirty(true);
+        renderAll();
+        restoreRuleMultiSelect(field, '');
       });
     });
     $$('[data-exclude]', editor).forEach(function (button) {
