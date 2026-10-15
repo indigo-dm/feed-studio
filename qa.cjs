@@ -22,12 +22,6 @@ qaInventory.items.forEach((item, index) => {
 });
 qaInventory.source_tag_counts ||= {};
 qaInventory.source_tag_counts.ApartmentNumber = qaInventory.items.length;
-[
-  { tag: 'NewDevelopmentId', name: 'ID новостройки', kind: 'text', max: 200, supported: true },
-  { tag: 'Address', name: 'Адрес', kind: 'text', max: 500, supported: true }
-].forEach((parameter) => {
-  if (!qaInventory.parameter_catalog.some((item) => item.tag === parameter.tag)) qaInventory.parameter_catalog.push(parameter);
-});
 qaPublishedSettings.image_settings ||= { lot_overrides: {}, bulk_rules: [] };
 qaPublishedSettings.parameter_settings ||= { lot_values: {}, bulk_rules: [] };
 if (qaLot && !Object.keys(qaPublishedSettings.image_settings.lot_overrides || {}).length) {
