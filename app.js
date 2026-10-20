@@ -1053,7 +1053,7 @@
       var presentation = ruleApplicationPresentation(enabled, matchingItems.length);
       var isAdd = rule.action === 'add';
       var positionText = rule.position_mode === 'start' ? 'в начало' : rule.position_mode === 'end' ? 'в конец' : 'с позиции ' + rule.position;
-      var actionText = isAdd ? 'Добавить ' + (rule.images || []).length + ' изображений ' + positionText :
+      var actionText = isAdd ? 'Добавить ' + imageCountLabel((rule.images || []).length) + ' ' + positionText :
         'Переместить изображение с позиции ' + rule.from_position + ' на позицию ' + rule.to_position;
       var facts = [['Действие', actionText]].concat(savedScopeFacts(rule, matchingItems));
       if (presentation.tone === 'warning') facts.unshift(['Состояние', 'Условия правила больше не соответствуют текущему исходному фиду']);
@@ -2076,45 +2076,6 @@
     }
   }
 
-  async function migrateImageLibrary() {
-    var slug = state.project && state.project.slug;
-    if (!slug || state.imageLibraryBusy || !uploadServiceUrl()) return;
-    var credential = window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.get ? window.FEED_STUDIO_CREDENTIAL.get() : '';
-    if (!credential) {
-      setImageLibraryMessage('Выйдите и войдите в Feed Studio повторно.', 'error');
-      return;
-    }
-    state.imageLibraryBusy = true;
-    state.imageLibraryMessage = 'Проверяем и собираем библиотеку…';
-    state.imageLibraryTone = '';
-    renderImageLibrary();
-    try {
-      var response = await fetch(serviceEndpoint('/image-library/migrate'), {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + credential, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project: slug, publish: true })
-      });
-      var payload = await response.json().catch(function () { return {}; });
-      if (!response.ok) throw new Error(payload.error || 'Не удалось собрать библиотеку изображений.');
-      if (!state.project || state.project.slug !== slug) return;
-      if (payload.request) {
-        storePublishOperation({ request: payload.request, status: payload.status || 'queued', project: slug, createdAt: payload.createdAt || new Date().toISOString() });
-        pollPublishStatus();
-      }
-      await loadImageLibrary(slug, false);
-      state.imageLibraryMessage = payload.scanned
-        ? 'Перенесено файлов: ' + payload.scanned + '. Объединено точных дублей: ' + Number(payload.exact_duplicate_files || 0) + '.' + (payload.request ? ' Обновление ссылок публикуется.' : '')
-        : 'Старых файлов не найдено. Библиотека уже приведена к единому формату.';
-      state.imageLibraryTone = 'success';
-    } catch (error) {
-      state.imageLibraryMessage = error.message || 'Не удалось собрать библиотеку изображений.';
-      state.imageLibraryTone = 'error';
-    } finally {
-      state.imageLibraryBusy = false;
-      renderImageLibrary();
-    }
-  }
-
   function selectedImageLibraryItems() {
     var selected = new Set((state.imageLibrarySelected || []).map(String));
     return projectImageLibraryItems().filter(function (item) { return selected.has(String(item.id)); });
@@ -2145,7 +2106,6 @@
     $('#add-library-to-lot').disabled = !count || !state.imageLotId || state.imageLibraryBusy;
     $('#add-library-to-selection').disabled = !count || !filteredImageItems().length || state.imageLibraryBusy;
     $('#refresh-image-library').disabled = state.imageLibraryBusy;
-    $('#migrate-image-library').disabled = state.imageLibraryBusy;
     var status = $('#image-library-status');
     status.className = 'image-upload-status' + (state.imageLibraryTone ? ' ' + state.imageLibraryTone : '');
     status.textContent = state.imageLibraryMessage || (count ? 'Выбрано изображений: ' + count + '.' : 'Выберите одно или несколько изображений.');
@@ -2207,7 +2167,7 @@
         position: options.mode === 'position' ? options.position : null
       }, filterRuleFrom(state.imageFilters, items)));
       setDirty(true);
-      setImageLibraryMessage('Создано правило для ' + apartmentCountLabel(items.length) + '.', 'success');
+      setImageLibraryMessage('Создано правило для ' + apartmentCountAfterForLabel(items.length) + '.', 'success');
       renderImages();
     } catch (error) {
       setImageLibraryMessage(error.message || 'Не удалось создать правило.', 'error');
@@ -2683,7 +2643,7 @@
       }, filterRuleFrom(state.imageFilters, items)));
       clearBulkImageFiles();
       setDirty(true);
-      setBulkImageUploadMessage('Правило создано для ' + apartmentCountLabel(items.length) + '.', 'success');
+      setBulkImageUploadMessage('Правило создано для ' + apartmentCountAfterForLabel(items.length) + '.', 'success');
       renderImages();
     } catch (error) {
       if (String(error.message || '').includes('Неверный пароль') && window.FEED_STUDIO_CREDENTIAL) window.FEED_STUDIO_CREDENTIAL.set('');
@@ -2751,6 +2711,19 @@
     return count + ' квартир';
   }
 
+  function apartmentCountAfterForLabel(count) {
+    return Number(count) === 1 ? '1 квартиры' : count + ' квартир';
+  }
+
+  function imageCountLabel(count) {
+    var value = Math.abs(Number(count)) % 100;
+    var last = value % 10;
+    if (value > 10 && value < 20) return count + ' изображений';
+    if (last === 1) return count + ' изображение';
+    if (last > 1 && last < 5) return count + ' изображения';
+    return count + ' изображений';
+  }
+
   function ruleApplicationPresentation(enabled, matchingCount) {
     if (!enabled) return { status: 'Выключено', tone: 'inactive' };
     if (!matchingCount) return { status: 'Не применяется', tone: 'warning' };
@@ -2816,7 +2789,7 @@
       var positionText = rule.position_mode === 'start' ? 'в начало' : rule.position_mode === 'end' ? 'в конец' : 'с позиции ' + rule.position;
       var summary = (rule.enabled !== false && !matchingItems.length ? 'Не применяется · 0 квартир' : apartmentCountLabel(matchingItems.length)) +
         (isAdd ? ' · ' + (rule.images || []).length + ' изобр. ' + positionText : ' · позиция ' + rule.from_position + ' → ' + rule.to_position);
-      var action = isAdd ? 'Добавить ' + (rule.images || []).length + ' изображений ' + positionText + ' итоговой галереи.' :
+      var action = isAdd ? 'Добавить ' + imageCountLabel((rule.images || []).length) + ' ' + positionText + ' итоговой галереи.' :
         'Переместить изображение с позиции ' + rule.from_position + ' на позицию ' + rule.to_position + '.';
       return bulkRuleCard(rule, matchingItems, summary, action, 'data-delete-image-rule');
     }).join('') : '<p class="helper">Массовых правил пока нет.</p>';
@@ -4338,7 +4311,6 @@
     $('#image-filter-search').addEventListener('input', function (event) { state.imageFilters.search = event.target.value; renderImages(); });
     $('#image-lot').addEventListener('change', function (event) { state.imageLotId = event.target.value; renderImages(); });
     $('#refresh-image-library').addEventListener('click', function () { loadImageLibrary(state.project && state.project.slug, true); });
-    $('#migrate-image-library').addEventListener('click', migrateImageLibrary);
     $('#library-image-mode').addEventListener('change', function (event) {
       $('#library-image-position').disabled = event.target.value !== 'position';
     });
