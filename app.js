@@ -46,12 +46,18 @@
     bulkImageUploadBusy: false,
     bulkImageUploadMessage: '',
     bulkImageUploadTone: '',
+    imageLibrary: [],
+    imageLibrarySelected: [],
+    imageLibraryBusy: false,
+    imageLibraryMessage: '',
+    imageLibraryTone: '',
     materialUploadBusy: false,
     materialDeleteBusy: '',
     materialUploadMessage: '',
     materialUploadTone: '',
     sourceFeedStatus: null,
     sourceFeedBusy: false,
+    sourceFeedRequestToken: 0,
     setupMode: false,
     pendingUploadDeletions: [],
     publishOperation: null,
@@ -1576,6 +1582,7 @@
     if (!state.project || !uploadServiceUrl()) return;
     var credential = window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.get ? window.FEED_STUDIO_CREDENTIAL.get() : '';
     if (!credential) return;
+    var requestToken = ++state.sourceFeedRequestToken;
     try {
       var response = await fetch(serviceEndpoint('/source-feed?project=' + encodeURIComponent(slug)), {
         headers: { Authorization: 'Bearer ' + credential },
@@ -1583,10 +1590,10 @@
       });
       var payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Не удалось проверить источник.');
-      if (!state.project || state.project.slug !== slug) return;
+      if (!state.project || state.project.slug !== slug || requestToken !== state.sourceFeedRequestToken) return;
       state.sourceFeedStatus = payload;
     } catch (error) {
-      if (!state.project || state.project.slug !== slug) return;
+      if (!state.project || state.project.slug !== slug || requestToken !== state.sourceFeedRequestToken) return;
       state.sourceFeedStatus = { error: error.message || 'Не удалось проверить источник.' };
     }
     renderSourceFeedSettings();
@@ -1607,6 +1614,7 @@
       return;
     }
     var startInitialRefresh = false;
+    state.sourceFeedRequestToken += 1;
     state.sourceFeedBusy = true;
     renderSourceFeedSettings();
     try {
@@ -1820,6 +1828,9 @@
 
   function addImageToItem(item, image) {
     var override = imageOverride(item);
+    if (effectiveImages(item).some(function (entry) { return String(entry.id) === String(image.id); })) {
+      throw new Error('Это изображение уже добавлено в галерею квартиры.');
+    }
     if ((override.added || []).length >= 20) throw new Error('Для одного лота можно добавить не более 20 изображений.');
     override.added.push(image);
     if (override.order.length) override.order.push(image.id);
@@ -2011,6 +2022,158 @@
     }
   }
 
+  function projectImageLibraryItems() {
+    var items = (state.imageLibrary || []).slice();
+    var known = new Set(items.map(function (item) { return String(item.id); }));
+    (state.assets && Array.isArray(state.assets.items) ? state.assets.items : []).forEach(function (asset) {
+      if (!asset.exists || !/\.(?:jpe?g|png|webp)$/i.test(String(asset.filename || ''))) return;
+      var id = 'asset-' + String(asset.key || asset.filename).replace(/[^A-Za-z0-9_-]+/g, '-').slice(0, 70);
+      if (known.has(id)) return;
+      items.push({
+        id: id,
+        name: String(asset.name || asset.filename || 'Материал'),
+        url: String(asset.url || ''),
+        path: 'assets/' + String(asset.filename || ''),
+        source: 'materials'
+      });
+      known.add(id);
+    });
+    return items;
+  }
+
+  function setImageLibraryMessage(message, tone) {
+    state.imageLibraryMessage = message || '';
+    state.imageLibraryTone = tone || '';
+    renderImageLibrary();
+  }
+
+  async function loadImageLibrary(expectedSlug, announce) {
+    var slug = String(expectedSlug || (state.project && state.project.slug) || '');
+    if (!slug || !state.project || state.project.slug !== slug || !uploadServiceUrl()) return;
+    var credential = window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.get ? window.FEED_STUDIO_CREDENTIAL.get() : '';
+    if (!credential) return;
+    state.imageLibraryBusy = true;
+    renderImageLibrary();
+    try {
+      var response = await fetch(serviceEndpoint('/image-library?project=' + encodeURIComponent(slug)), {
+        headers: { Authorization: 'Bearer ' + credential },
+        cache: 'no-store'
+      });
+      var payload = await response.json().catch(function () { return {}; });
+      if (!response.ok) throw new Error(payload.error || 'Не удалось загрузить библиотеку изображений.');
+      if (!state.project || state.project.slug !== slug) return;
+      state.imageLibrary = Array.isArray(payload.items) ? payload.items : [];
+      var available = new Set(projectImageLibraryItems().map(function (item) { return String(item.id); }));
+      state.imageLibrarySelected = state.imageLibrarySelected.filter(function (id) { return available.has(String(id)); });
+      state.imageLibraryMessage = announce ? 'Библиотека обновлена.' : '';
+      state.imageLibraryTone = announce ? 'success' : '';
+    } catch (error) {
+      state.imageLibraryMessage = error.message || 'Не удалось загрузить библиотеку изображений.';
+      state.imageLibraryTone = 'error';
+    } finally {
+      state.imageLibraryBusy = false;
+      renderImageLibrary();
+    }
+  }
+
+  function selectedImageLibraryItems() {
+    var selected = new Set((state.imageLibrarySelected || []).map(String));
+    return projectImageLibraryItems().filter(function (item) { return selected.has(String(item.id)); });
+  }
+
+  function renderImageLibrary() {
+    var panel = $('.image-library-panel');
+    var root = $('#image-library-grid');
+    if (!panel || !root) return;
+    var items = projectImageLibraryItems();
+    var selected = new Set((state.imageLibrarySelected || []).map(String));
+    panel.classList.toggle('loading', state.imageLibraryBusy);
+    root.innerHTML = items.length ? items.map(function (item) {
+      var checked = selected.has(String(item.id));
+      return '<label class="image-library-card ' + (checked ? 'selected' : '') + '"><input type="checkbox" data-library-image="' + esc(item.id) + '" ' +
+        (checked ? 'checked' : '') + '><img src="' + esc(item.url) + '" alt="' + esc(item.name || 'Изображение') + '" loading="lazy" decoding="async"><small>' +
+        esc(item.source === 'materials' ? 'Материалы' : 'Библиотека') + '</small><span title="' + esc(item.name || '') + '">' + esc(item.name || 'Изображение') + '</span></label>';
+    }).join('') : '<div class="image-library-empty">В библиотеке пока нет изображений. Загрузите первый файл ниже.</div>';
+    $$('[data-library-image]', root).forEach(function (input) {
+      input.addEventListener('change', function () {
+        var id = String(input.dataset.libraryImage);
+        if (input.checked && state.imageLibrarySelected.indexOf(id) < 0) state.imageLibrarySelected.push(id);
+        if (!input.checked) state.imageLibrarySelected = state.imageLibrarySelected.filter(function (value) { return value !== id; });
+        renderImageLibrary();
+      });
+    });
+    var count = selectedImageLibraryItems().length;
+    $('#add-library-to-lot').disabled = !count || !state.imageLotId || state.imageLibraryBusy;
+    $('#add-library-to-selection').disabled = !count || !filteredImageItems().length || state.imageLibraryBusy;
+    $('#refresh-image-library').disabled = state.imageLibraryBusy;
+    var status = $('#image-library-status');
+    status.className = 'image-upload-status' + (state.imageLibraryTone ? ' ' + state.imageLibraryTone : '');
+    status.textContent = state.imageLibraryMessage || (count ? 'Выбрано изображений: ' + count + '.' : 'Выберите одно или несколько изображений.');
+  }
+
+  function libraryInsertOptions() {
+    var mode = $('#library-image-mode').value;
+    var position = Number($('#library-image-position').value);
+    if (['start', 'end', 'position'].indexOf(mode) < 0 || (mode === 'position' && (!Number.isInteger(position) || position < 1 || position > 40))) {
+      throw new Error('Проверьте позицию добавления.');
+    }
+    return { mode: mode, position: position };
+  }
+
+  function addLibraryImagesToLot() {
+    var item = state.inventory && state.inventory.items.find(function (lot) { return String(lot.id) === String(state.imageLotId); });
+    var selected = selectedImageLibraryItems();
+    if (!item || !selected.length) return;
+    try {
+      var options = libraryInsertOptions();
+      var existingIds = new Set(effectiveImages(item).map(function (image) { return String(image.id); }));
+      var additions = selected.filter(function (image) { return !existingIds.has(String(image.id)); });
+      if (!additions.length) throw new Error('Все выбранные изображения уже есть у этой квартиры.');
+      if (effectiveImages(item).length + additions.length > 40) throw new Error('В галерее получится больше 40 изображений.');
+      additions.forEach(function (image) {
+        addImageToItem(item, { id: String(image.id), url: String(image.url), path: String(image.path || ''), name: String(image.name || 'Изображение') });
+      });
+      var images = effectiveImages(item);
+      var addedIds = new Set(additions.map(function (image) { return String(image.id); }));
+      var moved = images.filter(function (image) { return !addedIds.has(String(image.id)); });
+      var added = images.filter(function (image) { return addedIds.has(String(image.id)); });
+      var insertAt = options.mode === 'start' ? 0 : options.mode === 'end' ? moved.length : Math.max(0, Math.min(moved.length, options.position - 1));
+      moved.splice.apply(moved, [insertAt, 0].concat(added));
+      imageOverride(item).order = moved.map(function (image) { return image.id; });
+      setDirty(true);
+      setImageLibraryMessage('Добавлено выбранной квартире: ' + additions.length + '.', 'success');
+      renderImages();
+    } catch (error) {
+      setImageLibraryMessage(error.message || 'Не удалось добавить изображения.', 'error');
+    }
+  }
+
+  function addLibraryImagesToSelection() {
+    var items = filteredImageItems();
+    var selected = selectedImageLibraryItems();
+    if (!items.length || !selected.length) return;
+    try {
+      var options = libraryInsertOptions();
+      if (items.some(function (item) { return effectiveImages(item).length + selected.length > 40; })) {
+        throw new Error('После добавления в одной из галерей будет больше 40 изображений.');
+      }
+      state.imageSettings.bulk_rules.push(Object.assign({
+        id: 'image-add-rule-' + Date.now(),
+        name: 'Из библиотеки · ' + selected.length + ' изобр.',
+        enabled: true,
+        action: 'add',
+        images: selected.map(function (image) { return { id: String(image.id), url: String(image.url), path: String(image.path || ''), name: String(image.name || 'Изображение') }; }),
+        position_mode: options.mode,
+        position: options.mode === 'position' ? options.position : null
+      }, filterRuleFrom(state.imageFilters, items)));
+      setDirty(true);
+      setImageLibraryMessage('Создано правило для ' + apartmentCountLabel(items.length) + '.', 'success');
+      renderImages();
+    } catch (error) {
+      setImageLibraryMessage(error.message || 'Не удалось создать правило.', 'error');
+    }
+  }
+
   function renderMaterialUploadState() {
     var zone = $('#material-drop-zone');
     var button = $('#choose-material-file');
@@ -2178,6 +2341,74 @@
     renderImageUploadState();
   }
 
+  function perceptualHashFromCanvas(sourceCanvas) {
+    var hashCanvas = document.createElement('canvas');
+    hashCanvas.width = 9;
+    hashCanvas.height = 8;
+    var hashContext = hashCanvas.getContext('2d', { willReadFrequently: true });
+    hashContext.drawImage(sourceCanvas, 0, 0, 9, 8);
+    var pixels = hashContext.getImageData(0, 0, 9, 8).data;
+    var bits = '';
+    for (var row = 0; row < 8; row += 1) {
+      for (var column = 0; column < 8; column += 1) {
+        var leftOffset = (row * 9 + column) * 4;
+        var rightOffset = leftOffset + 4;
+        var left = pixels[leftOffset] * 0.299 + pixels[leftOffset + 1] * 0.587 + pixels[leftOffset + 2] * 0.114;
+        var right = pixels[rightOffset] * 0.299 + pixels[rightOffset + 1] * 0.587 + pixels[rightOffset + 2] * 0.114;
+        bits += left > right ? '1' : '0';
+      }
+    }
+    var result = '';
+    for (var bit = 0; bit < 64; bit += 4) result += parseInt(bits.slice(bit, bit + 4), 2).toString(16);
+    return result;
+  }
+
+  function perceptualHashDistance(left, right) {
+    if (!/^[0-9a-f]{16}$/i.test(String(left || '')) || !/^[0-9a-f]{16}$/i.test(String(right || ''))) return 65;
+    var distance = 0;
+    for (var index = 0; index < 16; index += 1) {
+      var value = parseInt(left[index], 16) ^ parseInt(right[index], 16);
+      while (value) { distance += value & 1; value >>= 1; }
+    }
+    return distance;
+  }
+
+  async function blobSha256(blob) {
+    if (!window.crypto || !window.crypto.subtle) return '';
+    var digest = await window.crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+    return Array.from(new Uint8Array(digest)).map(function (value) {
+      return value.toString(16).padStart(2, '0');
+    }).join('');
+  }
+
+  async function fingerprintLibraryItem(item) {
+    if (item.perceptual_hash && item.width && item.height && item.digest) return item;
+    try {
+      var response = await fetch(item.url, { cache: 'force-cache', credentials: 'omit' });
+      if (!response.ok) return item;
+      var blob = await response.blob();
+      item.digest = item.digest || await blobSha256(blob);
+      var bitmap = await createImageBitmap(blob);
+      var canvas = document.createElement('canvas');
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      canvas.getContext('2d').drawImage(bitmap, 0, 0);
+      if (bitmap.close) bitmap.close();
+      item.width = canvas.width;
+      item.height = canvas.height;
+      item.perceptual_hash = perceptualHashFromCanvas(canvas);
+    } catch (error) {
+      return item;
+    }
+    return item;
+  }
+
+  async function ensureImageLibraryFingerprints() {
+    var items = projectImageLibraryItems();
+    await Promise.all(items.map(fingerprintLibraryItem));
+    return items;
+  }
+
   async function optimizeImageFile(file) {
     var allowed = ['image/jpeg', 'image/png', 'image/webp'];
     if (!file || allowed.indexOf(file.type) < 0) throw new Error('Выберите изображение JPG, PNG или WebP.');
@@ -2220,7 +2451,68 @@
     if (!blob) throw new Error('Не удалось подготовить изображение.');
     if (blob.size > 5 * 1024 * 1024) throw new Error('После оптимизации файл превышает 5 МБ.');
     var name = String(file.name || 'image').replace(/\.[^.]+$/, '').replace(/[^A-Za-zА-Яа-яЁё0-9_-]+/g, '-').slice(0, 60) || 'image';
-    return new File([blob], name + '.jpg', { type: 'image/jpeg' });
+    var perceptualHash = perceptualHashFromCanvas(canvas);
+    return {
+      file: new File([blob], name + '.jpg', { type: 'image/jpeg' }),
+      width: canvas.width,
+      height: canvas.height,
+      perceptualHash: perceptualHash
+    };
+  }
+
+  async function uploadImageToLibrary(file, credential) {
+    var libraryItems = await ensureImageLibraryFingerprints();
+    var originalDigest = await blobSha256(file);
+    var localExact = originalDigest && libraryItems.find(function (item) {
+      return String(item.digest || '').toLowerCase() === originalDigest;
+    });
+    if (localExact) return { item: localExact, reused: true };
+    var optimized = await optimizeImageFile(file);
+    var optimizedRatio = optimized.width / optimized.height;
+    var localSimilar = libraryItems.filter(function (item) {
+      var itemRatio = Number(item.width || 0) / Number(item.height || 0);
+      return itemRatio && Math.abs(itemRatio - optimizedRatio) / Math.max(itemRatio, optimizedRatio) <= 0.12 &&
+        perceptualHashDistance(item.perceptual_hash, optimized.perceptualHash) <= 8;
+    }).slice(0, 6);
+    var localConfirmed = false;
+    if (localSimilar.length) {
+      var localNames = localSimilar.map(function (item) { return '• ' + String(item.name || 'Изображение'); }).join('\n');
+      localConfirmed = window.confirm('В библиотеке объекта уже есть похожее изображение:\n\n' + localNames + '\n\nЗагрузить новый файл отдельной копией?');
+      if (!localConfirmed) {
+        var localError = new Error('Загрузка отменена: выберите существующее изображение из библиотеки.');
+        localError.cancelled = true;
+        throw localError;
+      }
+    }
+    async function submit(confirmSimilar) {
+      var body = new FormData();
+      body.append('project', state.project.slug);
+      body.append('file', optimized.file, optimized.file.name);
+      body.append('width', String(optimized.width));
+      body.append('height', String(optimized.height));
+      body.append('perceptual_hash', optimized.perceptualHash);
+      if (confirmSimilar) body.append('confirm_similar', 'true');
+      var response = await fetch(serviceEndpoint('/image-library/upload'), {
+        method: 'POST', headers: { Authorization: 'Bearer ' + credential }, body: body
+      });
+      var payload = await response.json().catch(function () { return {}; });
+      if (response.status === 409 && payload.code === 'duplicate' && payload.match) {
+        return { item: payload.match, reused: true };
+      }
+      if (response.status === 409 && payload.code === 'similar_confirmation_required') {
+        var names = (payload.matches || []).map(function (item) { return '• ' + String(item.name || 'Изображение'); }).join('\n');
+        var confirmed = window.confirm('В библиотеке уже есть похожее изображение:\n\n' + names + '\n\nЗагрузить новый файл отдельной копией?');
+        if (!confirmed) {
+          var error = new Error('Загрузка отменена: выберите существующее изображение из библиотеки.');
+          error.cancelled = true;
+          throw error;
+        }
+        return submit(true);
+      }
+      if (!response.ok) throw new Error(payload.error || 'Сервис загрузки вернул ошибку.');
+      return { item: payload, reused: false };
+    }
+    return submit(localConfirmed);
   }
 
   async function uploadImageFile(file) {
@@ -2236,26 +2528,14 @@
     state.imageUploadBusy = true;
     setImageUploadMessage('Оптимизируем и загружаем изображение…', '');
     try {
-      var optimized = await optimizeImageFile(file);
-      var body = new FormData();
-      body.append('project', state.project.slug);
-      body.append('lot', item.id);
-      body.append('file', optimized, optimized.name);
-      var response = await fetch(serviceEndpoint('/upload'), {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + credential },
-        body: body
-      });
-      var payload = await response.json().catch(function () { return {}; });
-      if (!response.ok) {
-        if (response.status === 401 && window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.set) window.FEED_STUDIO_CREDENTIAL.set('');
-        throw new Error(payload.error || 'Сервис загрузки вернул ошибку.');
-      }
+      var uploaded = await uploadImageToLibrary(file, credential);
+      var payload = uploaded.item;
       if (!/^https:\/\//i.test(String(payload.url || '')) || !/^[A-Za-z0-9_-]+$/.test(String(payload.id || ''))) {
         throw new Error('Сервис загрузки вернул некорректный ответ.');
       }
-      addImageToItem(item, { id: String(payload.id), url: String(payload.url), path: String(payload.path || '') });
-      setImageUploadMessage('Изображение загружено и добавлено в галерею.', 'success');
+      addImageToItem(item, { id: String(payload.id), url: String(payload.url), path: String(payload.path || ''), name: String(payload.name || file.name || 'Изображение') });
+      if (!state.imageLibrary.some(function (entry) { return String(entry.id) === String(payload.id); })) state.imageLibrary.unshift(payload);
+      setImageUploadMessage(uploaded.reused ? 'Такое изображение уже было в библиотеке — использован существующий файл.' : 'Изображение загружено в библиотеку и добавлено в галерею.', 'success');
       renderImages();
     } catch (error) {
       setImageUploadMessage(error.message || 'Не удалось загрузить изображение.', 'error');
@@ -2317,19 +2597,13 @@
   }
 
   async function uploadBulkImageFile(file, credential) {
-    var optimized = await optimizeImageFile(file);
-    var body = new FormData();
-    body.append('project', state.project.slug);
-    body.append('file', optimized, optimized.name);
-    var response = await fetch(serviceEndpoint('/bulk-upload'), {
-      method: 'POST', headers: { Authorization: 'Bearer ' + credential }, body: body
-    });
-    var payload = await response.json().catch(function () { return {}; });
-    if (!response.ok) throw new Error(payload.error || 'Сервис загрузки вернул ошибку.');
-    if (!/^https:\/\//i.test(String(payload.url || '')) || !/^bulk-[A-Za-z0-9_-]+$/.test(String(payload.id || ''))) {
+    var result = await uploadImageToLibrary(file, credential);
+    var payload = result.item;
+    if (!/^https:\/\//i.test(String(payload.url || '')) || !/^(?:lib|asset)-[A-Za-z0-9_-]+$/.test(String(payload.id || ''))) {
       throw new Error('Сервис загрузки вернул некорректный ответ.');
     }
-    return { id: String(payload.id), url: String(payload.url), path: String(payload.path || ''), name: String(file.name || 'Изображение').slice(0, 120) };
+    if (!state.imageLibrary.some(function (entry) { return String(entry.id) === String(payload.id); })) state.imageLibrary.unshift(payload);
+    return { id: String(payload.id), url: String(payload.url), path: String(payload.path || ''), name: String(payload.name || file.name || 'Изображение').slice(0, 120) };
   }
 
   async function createBulkImageAddRule() {
@@ -2354,6 +2628,9 @@
         uploaded.push(await uploadBulkImageFile(state.bulkImageFiles[index].file, credential));
         setBulkImageUploadMessage('Оптимизировано и загружено ' + (index + 1) + ' из ' + state.bulkImageFiles.length + '…', '');
       }
+      uploaded = uploaded.filter(function (image, imageIndex, all) {
+        return all.findIndex(function (candidate) { return String(candidate.id) === String(image.id); }) === imageIndex;
+      });
       var modeLabel = mode === 'start' ? 'в начало' : mode === 'end' ? 'в конец' : 'с позиции ' + position;
       state.imageSettings.bulk_rules.push(Object.assign({
         id: 'image-add-rule-' + Date.now(),
@@ -2384,7 +2661,7 @@
       }));
     var override = state.imageSettings.lot_overrides[item.id] || { order: [], hidden: [], added: [] };
     (override.added || []).forEach(function (image) {
-      images.push({ id: image.id, url: image.url, path: image.path || '', kind: 'added', label: 'Добавлено вручную' });
+      images.push({ id: image.id, url: image.url, path: image.path || '', kind: 'added', label: image.name || 'Добавлено из библиотеки' });
     });
     var hidden = override.hidden || [];
     images = images.filter(function (image) { return hidden.indexOf(image.id) < 0; });
@@ -2397,7 +2674,7 @@
       if (rule.enabled !== false && ruleMatchesSimple(item, rule)) {
         if (rule.action === 'add') {
           var addedImages = (rule.images || []).map(function (image) {
-            return { id: image.id, url: image.url, path: image.path || '', kind: 'bulk-added', label: 'Добавлено массовым правилом' };
+            return { id: image.id, url: image.url, path: image.path || '', kind: 'bulk-added', label: image.name || 'Добавлено из библиотеки массовым правилом' };
           }).filter(function (image) {
             return hidden.indexOf(image.id) < 0 && !images.some(function (current) { return current.id === image.id; });
           });
@@ -2559,6 +2836,7 @@
     updateChessboardButton('images');
     var filtered = filteredImageItems();
     $('#image-filter-count').textContent = filtered.length;
+    renderImageLibrary();
     if (!filtered.some(function (item) { return item.id === state.imageLotId; })) state.imageLotId = filtered[0] ? filtered[0].id : null;
     $('#image-lot').innerHTML = filtered.map(function (item) {
       return '<option value="' + esc(item.id) + '">' + esc(item.house + ' · ' + roomShortLabel(effectiveRoomsForItem(item)) + ' · ID ' + item.id) + '</option>';
@@ -4019,6 +4297,12 @@
     $('#image-filter-plan').addEventListener('change', function (event) { state.imageFilters.plan = event.target.value; renderImages(); });
     $('#image-filter-search').addEventListener('input', function (event) { state.imageFilters.search = event.target.value; renderImages(); });
     $('#image-lot').addEventListener('change', function (event) { state.imageLotId = event.target.value; renderImages(); });
+    $('#refresh-image-library').addEventListener('click', function () { loadImageLibrary(state.project && state.project.slug, true); });
+    $('#library-image-mode').addEventListener('change', function (event) {
+      $('#library-image-position').disabled = event.target.value !== 'position';
+    });
+    $('#add-library-to-lot').addEventListener('click', addLibraryImagesToLot);
+    $('#add-library-to-selection').addEventListener('click', addLibraryImagesToSelection);
     $('#choose-image-file').addEventListener('click', function (event) {
       event.stopPropagation();
       if (!uploadServiceUrl()) return;
@@ -4308,9 +4592,10 @@
   }
 
   function loadProjectServices(slug, loadToken) {
-    Promise.all([loadMaterialLibrary(slug), loadSourceFeedStatus(slug)]).then(function () {
+    Promise.all([loadMaterialLibrary(slug), loadImageLibrary(slug), loadSourceFeedStatus(slug)]).then(function () {
       if (loadToken !== state.projectLoadToken || !state.project || state.project.slug !== slug) return;
       renderAssets();
+      renderImageLibrary();
       renderFeedRefreshState();
     });
   }
@@ -4372,6 +4657,11 @@
       state.bulkImageUploadBusy = false;
       state.bulkImageUploadMessage = '';
       state.bulkImageUploadTone = '';
+      state.imageLibrary = [];
+      state.imageLibrarySelected = [];
+      state.imageLibraryBusy = false;
+      state.imageLibraryMessage = '';
+      state.imageLibraryTone = '';
       state.materialUploadBusy = false;
       state.materialDeleteBusy = '';
       state.materialUploadMessage = '';
@@ -4451,6 +4741,11 @@
       state.bulkImageUploadBusy = false;
       state.bulkImageUploadMessage = '';
       state.bulkImageUploadTone = '';
+      state.imageLibrary = [];
+      state.imageLibrarySelected = [];
+      state.imageLibraryBusy = false;
+      state.imageLibraryMessage = '';
+      state.imageLibraryTone = '';
       state.materialUploadBusy = false;
       state.materialDeleteBusy = '';
       state.materialUploadMessage = '';
