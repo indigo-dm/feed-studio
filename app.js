@@ -2076,6 +2076,46 @@
     }
   }
 
+  async function migrateImageLibrary() {
+    var slug = state.project && state.project.slug;
+    if (!slug || state.imageLibraryBusy || !uploadServiceUrl()) return;
+    var credential = window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.get ? window.FEED_STUDIO_CREDENTIAL.get() : '';
+    if (!credential) {
+      setImageLibraryMessage('Выйдите и войдите в Feed Studio повторно.', 'error');
+      return;
+    }
+    if (!window.confirm('Собрать все ранее загруженные изображения в общей библиотеке этого объекта? Точные дубли будут объединены, а старые копии удалятся только после успешной публикации обновлённых ссылок.')) return;
+    state.imageLibraryBusy = true;
+    state.imageLibraryMessage = 'Проверяем и собираем библиотеку…';
+    state.imageLibraryTone = '';
+    renderImageLibrary();
+    try {
+      var response = await fetch(serviceEndpoint('/image-library/migrate'), {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + credential, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project: slug, publish: true })
+      });
+      var payload = await response.json().catch(function () { return {}; });
+      if (!response.ok) throw new Error(payload.error || 'Не удалось собрать библиотеку изображений.');
+      if (!state.project || state.project.slug !== slug) return;
+      if (payload.request) {
+        storePublishOperation({ request: payload.request, status: payload.status || 'queued', project: slug, createdAt: payload.createdAt || new Date().toISOString() });
+        pollPublishStatus();
+      }
+      await loadImageLibrary(slug, false);
+      state.imageLibraryMessage = payload.scanned
+        ? 'Перенесено файлов: ' + payload.scanned + '. Объединено точных дублей: ' + Number(payload.exact_duplicate_files || 0) + '.' + (payload.request ? ' Обновление ссылок публикуется.' : '')
+        : 'Старых файлов не найдено. Библиотека уже приведена к единому формату.';
+      state.imageLibraryTone = 'success';
+    } catch (error) {
+      state.imageLibraryMessage = error.message || 'Не удалось собрать библиотеку изображений.';
+      state.imageLibraryTone = 'error';
+    } finally {
+      state.imageLibraryBusy = false;
+      renderImageLibrary();
+    }
+  }
+
   function selectedImageLibraryItems() {
     var selected = new Set((state.imageLibrarySelected || []).map(String));
     return projectImageLibraryItems().filter(function (item) { return selected.has(String(item.id)); });
@@ -2106,6 +2146,7 @@
     $('#add-library-to-lot').disabled = !count || !state.imageLotId || state.imageLibraryBusy;
     $('#add-library-to-selection').disabled = !count || !filteredImageItems().length || state.imageLibraryBusy;
     $('#refresh-image-library').disabled = state.imageLibraryBusy;
+    $('#migrate-image-library').disabled = state.imageLibraryBusy;
     var status = $('#image-library-status');
     status.className = 'image-upload-status' + (state.imageLibraryTone ? ' ' + state.imageLibraryTone : '');
     status.textContent = state.imageLibraryMessage || (count ? 'Выбрано изображений: ' + count + '.' : 'Выберите одно или несколько изображений.');
@@ -4298,6 +4339,7 @@
     $('#image-filter-search').addEventListener('input', function (event) { state.imageFilters.search = event.target.value; renderImages(); });
     $('#image-lot').addEventListener('change', function (event) { state.imageLotId = event.target.value; renderImages(); });
     $('#refresh-image-library').addEventListener('click', function () { loadImageLibrary(state.project && state.project.slug, true); });
+    $('#migrate-image-library').addEventListener('click', migrateImageLibrary);
     $('#library-image-mode').addEventListener('change', function (event) {
       $('#library-image-position').disabled = event.target.value !== 'position';
     });
