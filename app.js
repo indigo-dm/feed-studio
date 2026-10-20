@@ -2084,7 +2084,6 @@
       setImageLibraryMessage('Выйдите и войдите в Feed Studio повторно.', 'error');
       return;
     }
-    if (!window.confirm('Собрать все ранее загруженные изображения в общей библиотеке этого объекта? Точные дубли будут объединены, а старые копии удалятся только после успешной публикации обновлённых ссылок.')) return;
     state.imageLibraryBusy = true;
     state.imageLibraryMessage = 'Проверяем и собираем библиотеку…';
     state.imageLibraryTone = '';
