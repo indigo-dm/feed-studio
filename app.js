@@ -42,6 +42,10 @@
     imageUploadBusy: false,
     imageUploadMessage: '',
     imageUploadTone: '',
+    bulkImageFiles: [],
+    bulkImageUploadBusy: false,
+    bulkImageUploadMessage: '',
+    bulkImageUploadTone: '',
     materialUploadBusy: false,
     materialDeleteBusy: '',
     materialUploadMessage: '',
@@ -1041,10 +1045,14 @@
       var matchingItems = state.inventory.items.filter(function (item) { return ruleMatchesSimple(item, rule); });
       var enabled = rule.enabled !== false;
       var presentation = ruleApplicationPresentation(enabled, matchingItems.length);
-      var facts = [['Действие', 'Переместить изображение с позиции ' + rule.from_position + ' на позицию ' + rule.to_position]].concat(savedScopeFacts(rule, matchingItems));
+      var isAdd = rule.action === 'add';
+      var positionText = rule.position_mode === 'start' ? 'в начало' : rule.position_mode === 'end' ? 'в конец' : 'с позиции ' + rule.position;
+      var actionText = isAdd ? 'Добавить ' + (rule.images || []).length + ' изображений ' + positionText :
+        'Переместить изображение с позиции ' + rule.from_position + ' на позицию ' + rule.to_position;
+      var facts = [['Действие', actionText]].concat(savedScopeFacts(rule, matchingItems));
       if (presentation.tone === 'warning') facts.unshift(['Состояние', 'Условия правила больше не соответствуют текущему исходному фиду']);
       add('published-image-bulk::' + rule.id, 'Изображения', rule.name || 'Массовое правило изображений',
-        enabled ? (presentation.tone === 'warning' ? 'Не применяется · 0 квартир' : 'Позиция ' + rule.from_position + ' → ' + rule.to_position + ' · ' + apartmentCountLabel(matchingItems.length)) : 'Правило сохранено, но выключено',
+        enabled ? (presentation.tone === 'warning' ? 'Не применяется · 0 квартир' : (isAdd ? (rule.images || []).length + ' изобр. ' + positionText : 'Позиция ' + rule.from_position + ' → ' + rule.to_position) + ' · ' + apartmentCountLabel(matchingItems.length)) : 'Правило сохранено, но выключено',
         presentation.status, presentation.tone, facts);
     });
 
@@ -2187,9 +2195,30 @@
     context.fillRect(0, 0, width, height);
     context.drawImage(bitmap, 0, 0, width, height);
     if (bitmap.close) bitmap.close();
-    var blob = await new Promise(function (resolve) { canvas.toBlob(resolve, 'image/jpeg', 0.88); });
+    var quality = 0.86;
+    var targetBytes = 2500 * 1024;
+    var blob = null;
+    for (var attempt = 0; attempt < 7; attempt += 1) {
+      blob = await new Promise(function (resolve) { canvas.toBlob(resolve, 'image/jpeg', quality); });
+      if (!blob || blob.size <= targetBytes) break;
+      if (quality > 0.7) {
+        quality -= 0.06;
+      } else {
+        var reducedWidth = Math.max(900, Math.round(canvas.width * 0.86));
+        var reducedHeight = Math.max(675, Math.round(canvas.height * 0.86));
+        if (reducedWidth === canvas.width && reducedHeight === canvas.height) break;
+        var reduced = document.createElement('canvas');
+        reduced.width = reducedWidth;
+        reduced.height = reducedHeight;
+        var reducedContext = reduced.getContext('2d', { alpha: false });
+        reducedContext.fillStyle = '#ffffff';
+        reducedContext.fillRect(0, 0, reducedWidth, reducedHeight);
+        reducedContext.drawImage(canvas, 0, 0, reducedWidth, reducedHeight);
+        canvas = reduced;
+      }
+    }
     if (!blob) throw new Error('Не удалось подготовить изображение.');
-    if (blob.size > 10 * 1024 * 1024) throw new Error('После оптимизации файл превышает 10 МБ.');
+    if (blob.size > 5 * 1024 * 1024) throw new Error('После оптимизации файл превышает 5 МБ.');
     var name = String(file.name || 'image').replace(/\.[^.]+$/, '').replace(/[^A-Za-zА-Яа-яЁё0-9_-]+/g, '-').slice(0, 60) || 'image';
     return new File([blob], name + '.jpg', { type: 'image/jpeg' });
   }
@@ -2236,6 +2265,118 @@
     }
   }
 
+  function setBulkImageUploadMessage(message, tone) {
+    state.bulkImageUploadMessage = message || '';
+    state.bulkImageUploadTone = tone || '';
+    renderBulkImageUploadState();
+  }
+
+  function clearBulkImageFiles() {
+    state.bulkImageFiles.forEach(function (entry) { if (entry.preview) URL.revokeObjectURL(entry.preview); });
+    state.bulkImageFiles = [];
+  }
+
+  function selectBulkImageFiles(fileList) {
+    var files = Array.from(fileList || []);
+    var allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!files.length) return;
+    if (files.length > 10) { showToast('За одну операцию можно выбрать не более 10 изображений.'); return; }
+    if (files.some(function (file) { return allowed.indexOf(file.type) < 0 || file.size < 1 || file.size > 20 * 1024 * 1024; })) {
+      showToast('Допустимы JPG, PNG и WebP до 20 МБ каждый.'); return;
+    }
+    clearBulkImageFiles();
+    state.bulkImageFiles = files.map(function (file) { return { file: file, preview: URL.createObjectURL(file) }; });
+    setBulkImageUploadMessage('Выбрано файлов: ' + files.length + '. При создании правила они будут оптимизированы.', '');
+  }
+
+  function renderBulkImageUploadState() {
+    var zone = $('#bulk-image-drop-zone');
+    var root = $('#bulk-image-selection');
+    var button = $('#apply-image-add-bulk');
+    var status = $('#bulk-image-upload-status');
+    if (!zone || !root || !button || !status) return;
+    var available = Boolean(uploadServiceUrl());
+    zone.classList.toggle('disabled', !available);
+    zone.classList.toggle('uploading', state.bulkImageUploadBusy);
+    root.innerHTML = state.bulkImageFiles.map(function (entry, index) {
+      return '<figure><img src="' + esc(entry.preview) + '" alt="' + esc(entry.file.name) + '"><button type="button" data-remove-bulk-image="' + index + '" aria-label="Убрать файл">×</button></figure>';
+    }).join('');
+    $$('[data-remove-bulk-image]', root).forEach(function (removeButton) {
+      removeButton.addEventListener('click', function () {
+        var index = Number(removeButton.dataset.removeBulkImage);
+        var entry = state.bulkImageFiles[index];
+        if (entry && entry.preview) URL.revokeObjectURL(entry.preview);
+        state.bulkImageFiles.splice(index, 1);
+        renderBulkImageUploadState();
+      });
+    });
+    button.disabled = !available || state.bulkImageUploadBusy || !state.bulkImageFiles.length;
+    button.textContent = state.bulkImageUploadBusy ? 'Оптимизируем и загружаем…' : 'Загрузить и создать правило';
+    status.className = 'image-upload-status' + (state.bulkImageUploadTone ? ' ' + state.bulkImageUploadTone : '');
+    status.textContent = state.bulkImageUploadMessage || (available ? 'Каждый файл будет уменьшен до 2000 px и примерно 2,5 МБ.' : 'Массовая загрузка недоступна без защищённого хранилища.');
+  }
+
+  async function uploadBulkImageFile(file, credential) {
+    var optimized = await optimizeImageFile(file);
+    var body = new FormData();
+    body.append('project', state.project.slug);
+    body.append('file', optimized, optimized.name);
+    var response = await fetch(serviceEndpoint('/bulk-upload'), {
+      method: 'POST', headers: { Authorization: 'Bearer ' + credential }, body: body
+    });
+    var payload = await response.json().catch(function () { return {}; });
+    if (!response.ok) throw new Error(payload.error || 'Сервис загрузки вернул ошибку.');
+    if (!/^https:\/\//i.test(String(payload.url || '')) || !/^bulk-[A-Za-z0-9_-]+$/.test(String(payload.id || ''))) {
+      throw new Error('Сервис загрузки вернул некорректный ответ.');
+    }
+    return { id: String(payload.id), url: String(payload.url), path: String(payload.path || ''), name: String(file.name || 'Изображение').slice(0, 120) };
+  }
+
+  async function createBulkImageAddRule() {
+    var items = filteredImageItems();
+    if (!items.length) { showToast('По текущим фильтрам нет квартир.'); return; }
+    if (!state.bulkImageFiles.length || state.bulkImageUploadBusy) return;
+    if (items.some(function (item) { return effectiveImages(item).length + state.bulkImageFiles.length > 40; })) {
+      showToast('После добавления в одной из галерей будет больше 40 изображений. Уменьшите выбор файлов.'); return;
+    }
+    var mode = $('#bulk-image-mode').value;
+    var position = Number($('#bulk-image-position').value);
+    if (['start', 'end', 'position'].indexOf(mode) < 0 || (mode === 'position' && (!Number.isInteger(position) || position < 1 || position > 40))) {
+      showToast('Проверьте позицию добавления.'); return;
+    }
+    var credential = window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.get ? window.FEED_STUDIO_CREDENTIAL.get() : '';
+    if (!credential) { showToast('Сессия входа завершена. Войдите повторно.'); return; }
+    state.bulkImageUploadBusy = true;
+    setBulkImageUploadMessage('Оптимизируем и загружаем 0 из ' + state.bulkImageFiles.length + '…', '');
+    try {
+      var uploaded = [];
+      for (var index = 0; index < state.bulkImageFiles.length; index += 1) {
+        uploaded.push(await uploadBulkImageFile(state.bulkImageFiles[index].file, credential));
+        setBulkImageUploadMessage('Оптимизировано и загружено ' + (index + 1) + ' из ' + state.bulkImageFiles.length + '…', '');
+      }
+      var modeLabel = mode === 'start' ? 'в начало' : mode === 'end' ? 'в конец' : 'с позиции ' + position;
+      state.imageSettings.bulk_rules.push(Object.assign({
+        id: 'image-add-rule-' + Date.now(),
+        name: 'Добавление ' + uploaded.length + ' изобр. ' + modeLabel,
+        enabled: true,
+        action: 'add',
+        images: uploaded,
+        position_mode: mode,
+        position: mode === 'position' ? position : null
+      }, filterRuleFrom(state.imageFilters, items)));
+      clearBulkImageFiles();
+      setDirty(true);
+      setBulkImageUploadMessage('Правило создано для ' + apartmentCountLabel(items.length) + '.', 'success');
+      renderImages();
+    } catch (error) {
+      if (String(error.message || '').includes('Неверный пароль') && window.FEED_STUDIO_CREDENTIAL) window.FEED_STUDIO_CREDENTIAL.set('');
+      setBulkImageUploadMessage(error.message || 'Не удалось загрузить изображения.', 'error');
+    } finally {
+      state.bulkImageUploadBusy = false;
+      renderBulkImageUploadState();
+    }
+  }
+
   function effectiveImages(item) {
     var images = [{ id: 'brand-card', url: item.final_image, kind: 'generated', label: 'Брендированная карточка' }]
       .concat((item.source_images || []).map(function (image) {
@@ -2254,7 +2395,18 @@
     }));
     state.imageSettings.bulk_rules.forEach(function (rule) {
       if (rule.enabled !== false && ruleMatchesSimple(item, rule)) {
-        images = moveArrayItem(images, rule.from_position, rule.to_position);
+        if (rule.action === 'add') {
+          var addedImages = (rule.images || []).map(function (image) {
+            return { id: image.id, url: image.url, path: image.path || '', kind: 'bulk-added', label: 'Добавлено массовым правилом' };
+          }).filter(function (image) {
+            return hidden.indexOf(image.id) < 0 && !images.some(function (current) { return current.id === image.id; });
+          });
+          var insertAt = rule.position_mode === 'start' ? 0 : rule.position_mode === 'end' ? images.length :
+            Math.max(0, Math.min(images.length, Number(rule.position || 1) - 1));
+          images.splice.apply(images, [insertAt, 0].concat(addedImages));
+        } else {
+          images = moveArrayItem(images, rule.from_position, rule.to_position);
+        }
       }
     });
     if (hasIndividualOrder) {
@@ -2343,13 +2495,26 @@
   function renderImageBulkRules() {
     $('#image-bulk-rules').innerHTML = state.imageSettings.bulk_rules.length ? state.imageSettings.bulk_rules.map(function (rule) {
       var matchingItems = state.inventory.items.filter(function (item) { return ruleMatchesSimple(item, rule); });
-      var summary = (rule.enabled !== false && !matchingItems.length ? 'Не применяется · 0 квартир' : apartmentCountLabel(matchingItems.length)) + ' · позиция ' + rule.from_position + ' → ' + rule.to_position;
-      var action = 'Переместить изображение с позиции ' + rule.from_position + ' на позицию ' + rule.to_position + '.';
+      var isAdd = rule.action === 'add';
+      var positionText = rule.position_mode === 'start' ? 'в начало' : rule.position_mode === 'end' ? 'в конец' : 'с позиции ' + rule.position;
+      var summary = (rule.enabled !== false && !matchingItems.length ? 'Не применяется · 0 квартир' : apartmentCountLabel(matchingItems.length)) +
+        (isAdd ? ' · ' + (rule.images || []).length + ' изобр. ' + positionText : ' · позиция ' + rule.from_position + ' → ' + rule.to_position);
+      var action = isAdd ? 'Добавить ' + (rule.images || []).length + ' изображений ' + positionText + ' итоговой галереи.' :
+        'Переместить изображение с позиции ' + rule.from_position + ' на позицию ' + rule.to_position + '.';
       return bulkRuleCard(rule, matchingItems, summary, action, 'data-delete-image-rule');
     }).join('') : '<p class="helper">Массовых правил пока нет.</p>';
     $$('[data-delete-image-rule]', $('#image-bulk-rules')).forEach(function (button) {
       button.addEventListener('click', function () {
+        var removedRule = state.imageSettings.bulk_rules.find(function (rule) { return rule.id === button.dataset.deleteImageRule; });
+        var removedImageIds = new Set((removedRule && removedRule.action === 'add' ? removedRule.images || [] : []).map(function (image) { return String(image.id); }));
         state.imageSettings.bulk_rules = state.imageSettings.bulk_rules.filter(function (rule) { return rule.id !== button.dataset.deleteImageRule; });
+        if (removedImageIds.size) {
+          Object.keys(state.imageSettings.lot_overrides).forEach(function (lotId) {
+            var override = state.imageSettings.lot_overrides[lotId];
+            override.hidden = (override.hidden || []).filter(function (id) { return !removedImageIds.has(String(id)); });
+            override.order = (override.order || []).filter(function (id) { return !removedImageIds.has(String(id)); });
+          });
+        }
         setDirty(true);
         renderImages();
       });
@@ -2406,6 +2571,7 @@
       renderImageBulkRules();
       renderImageIndividualRules();
       renderImageUploadState();
+      renderBulkImageUploadState();
       return;
     }
     var images = effectiveImages(item);
@@ -2510,6 +2676,13 @@
       return { id: image.id, url: image.url, label: 'Исходный фид · позиция ' + image.position, kind: 'source' };
     }).concat((override.added || []).map(function (image) {
       return { id: image.id, url: image.url, path: image.path || '', label: 'Добавлено вручную', kind: 'added' };
+    })).concat(state.imageSettings.bulk_rules.reduce(function (result, rule) {
+      if (rule.action !== 'add' || rule.enabled === false || !ruleMatchesSimple(item, rule)) return result;
+      return result.concat((rule.images || []).map(function (image) {
+        return { id: image.id, url: image.url, path: image.path || '', label: 'Добавлено массовым правилом', kind: 'bulk-added' };
+      }));
+    }, []).filter(function (image, index, all) {
+      return all.findIndex(function (candidate) { return candidate.id === image.id; }) === index;
     })).filter(function (image) { return hiddenIds.indexOf(image.id) >= 0; });
     $('#removed-images-wrap').classList.toggle('hidden', hiddenImages.length === 0);
     $('#removed-images').innerHTML = hiddenImages.map(function (image) {
@@ -2535,6 +2708,7 @@
     renderImageBulkRules();
     renderImageIndividualRules();
     renderImageUploadState();
+    renderBulkImageUploadState();
   }
 
   function sanitizeDescriptionHtml(value) {
@@ -3610,6 +3784,14 @@
     if (state.imageSettings.bulk_rules.length > 30) return 'Допускается не более 30 массовых правил изображений.';
     if (state.parameterSettings.bulk_rules.length > 30) return 'Допускается не более 30 массовых правил параметров.';
     if (state.excludedLotIds.length > 250) return 'Допускается исключить не более 250 лотов.';
+    for (var imageRuleIndex = 0; imageRuleIndex < state.imageSettings.bulk_rules.length; imageRuleIndex += 1) {
+      var imageRule = state.imageSettings.bulk_rules[imageRuleIndex];
+      if (imageRule.action === 'add') {
+        if (!Array.isArray(imageRule.images) || !imageRule.images.length || imageRule.images.length > 10) return 'В правиле добавления должно быть от 1 до 10 изображений.';
+        if (['start', 'end', 'position'].indexOf(imageRule.position_mode) < 0) return 'В правиле добавления изображений некорректно указана позиция.';
+        if (imageRule.position_mode === 'position' && (!Number.isInteger(Number(imageRule.position)) || Number(imageRule.position) < 1 || Number(imageRule.position) > 40)) return 'В правиле добавления изображений позиция должна быть от 1 до 40.';
+      }
+    }
     if (!state.materialSettings.logo || !state.materialSettings.key_render) return 'Выберите логотип и ключевой рендер.';
     var materialFiles = new Set((state.assets && state.assets.items || []).filter(function (asset) { return asset.exists; }).map(function (asset) { return asset.filename; }));
     if (!materialFiles.has(state.materialSettings.logo) || !materialFiles.has(state.materialSettings.key_render)) return 'Один из выбранных материалов недоступен.';
@@ -3862,6 +4044,28 @@
       var file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
       if (file && uploadServiceUrl()) uploadImageFile(file);
     });
+    var bulkDropZone = $('#bulk-image-drop-zone');
+    bulkDropZone.addEventListener('click', function () { if (uploadServiceUrl()) $('#bulk-image-file-input').click(); });
+    bulkDropZone.addEventListener('keydown', function (event) {
+      if ((event.key === 'Enter' || event.key === ' ') && uploadServiceUrl()) { event.preventDefault(); $('#bulk-image-file-input').click(); }
+    });
+    $('#bulk-image-file-input').addEventListener('change', function (event) {
+      selectBulkImageFiles(event.target.files);
+      event.target.value = '';
+    });
+    ['dragenter', 'dragover'].forEach(function (eventName) {
+      bulkDropZone.addEventListener(eventName, function (event) { event.preventDefault(); if (uploadServiceUrl()) bulkDropZone.classList.add('dragover'); });
+    });
+    ['dragleave', 'drop'].forEach(function (eventName) {
+      bulkDropZone.addEventListener(eventName, function (event) { event.preventDefault(); bulkDropZone.classList.remove('dragover'); });
+    });
+    bulkDropZone.addEventListener('drop', function (event) {
+      if (uploadServiceUrl()) selectBulkImageFiles(event.dataTransfer && event.dataTransfer.files);
+    });
+    $('#bulk-image-mode').addEventListener('change', function (event) {
+      $('#bulk-image-position').disabled = event.target.value !== 'position';
+    });
+    $('#apply-image-add-bulk').addEventListener('click', createBulkImageAddRule);
     $('#choose-material-file').addEventListener('click', function (event) {
       event.stopPropagation();
       if (uploadServiceUrl()) $('#material-file-input').click();
@@ -4164,6 +4368,10 @@
       state.imageUploadBusy = false;
       state.imageUploadMessage = '';
       state.imageUploadTone = '';
+      clearBulkImageFiles();
+      state.bulkImageUploadBusy = false;
+      state.bulkImageUploadMessage = '';
+      state.bulkImageUploadTone = '';
       state.materialUploadBusy = false;
       state.materialDeleteBusy = '';
       state.materialUploadMessage = '';
@@ -4239,6 +4447,10 @@
       state.dirty = false;
       state.sourceFeedStatus = null;
       state.sourceFeedBusy = false;
+      clearBulkImageFiles();
+      state.bulkImageUploadBusy = false;
+      state.bulkImageUploadMessage = '';
+      state.bulkImageUploadTone = '';
       state.materialUploadBusy = false;
       state.materialDeleteBusy = '';
       state.materialUploadMessage = '';
