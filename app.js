@@ -2795,16 +2795,7 @@
     }).join('') : '<p class="helper">Массовых правил пока нет.</p>';
     $$('[data-delete-image-rule]', $('#image-bulk-rules')).forEach(function (button) {
       button.addEventListener('click', function () {
-        var removedRule = state.imageSettings.bulk_rules.find(function (rule) { return rule.id === button.dataset.deleteImageRule; });
-        var removedImageIds = new Set((removedRule && removedRule.action === 'add' ? removedRule.images || [] : []).map(function (image) { return String(image.id); }));
         state.imageSettings.bulk_rules = state.imageSettings.bulk_rules.filter(function (rule) { return rule.id !== button.dataset.deleteImageRule; });
-        if (removedImageIds.size) {
-          Object.keys(state.imageSettings.lot_overrides).forEach(function (lotId) {
-            var override = state.imageSettings.lot_overrides[lotId];
-            override.hidden = (override.hidden || []).filter(function (id) { return !removedImageIds.has(String(id)); });
-            override.order = (override.order || []).filter(function (id) { return !removedImageIds.has(String(id)); });
-          });
-        }
         setDirty(true);
         renderImages();
       });
