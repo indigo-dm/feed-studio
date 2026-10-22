@@ -9,7 +9,7 @@
   <meta name="description" content="Feed Studio — управление брендированными фидами объектов недвижимости">
   <title>Feed Studio — управление фидами</title>
   <link rel="icon" href="assets/indigo-logo.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="app.css?v=20261020-image-library-3">
+  <link rel="stylesheet" href="app.css?v=20261022-image-workflow-1">
 </head>
 <body class="access-locked">
   <section class="access-gate" id="access-gate" aria-labelledby="access-title">
@@ -142,22 +142,36 @@
             <button class="button button-secondary lot-chessboard-button" type="button" data-open-chessboard="images">Выбрать в шахматке</button>
             <div class="toolbar-count"><strong id="image-filter-count">0</strong><span>в выборке</span></div>
           </div>
-          <section class="panel image-library-panel">
-            <div class="panel-heading image-library-heading">
+          <details class="panel image-library-panel">
+            <summary class="panel-heading image-library-heading">
               <div><p class="eyebrow">Общая библиотека объекта</p><h2>Выбрать готовые изображения</h2><p class="helper">Файлы хранятся один раз и могут использоваться в нескольких квартирах.</p></div>
               <div class="image-library-heading-actions">
+                <span class="image-library-summary" id="image-library-summary">Загружаем…</span>
                 <button class="button button-secondary" id="refresh-image-library" type="button">Обновить библиотеку</button>
               </div>
+            </summary>
+            <div class="image-library-body">
+              <section class="image-library-upload-block">
+                <input id="library-image-file-input" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden>
+                <div class="image-drop-zone" id="library-image-drop-zone" role="button" tabindex="0" aria-label="Загрузить изображения в библиотеку">
+                  <span class="image-drop-icon">＋</span>
+                  <div><strong>Загрузить изображения в библиотеку</strong><small>До 20 файлов · JPG, PNG или WebP · дубликаты будут проверены</small></div>
+                  <button class="button button-secondary" id="choose-library-image-files" type="button">Выбрать файлы</button>
+                </div>
+                <div class="bulk-image-selection" id="library-image-upload-selection"></div>
+                <button class="button button-secondary" id="upload-library-images" type="button">Загрузить в библиотеку</button>
+                <p class="image-upload-status" id="library-image-upload-status"></p>
+              </section>
+              <div class="image-library-grid" id="image-library-grid"></div>
+              <div class="image-library-actions">
+                <label class="field"><span>Куда добавить</span><select id="library-image-mode"><option value="start">В начало</option><option value="end" selected>В конец</option><option value="position">На позицию</option></select></label>
+                <label class="field"><span>Позиция</span><input id="library-image-position" type="number" min="1" max="40" value="2" disabled></label>
+                <button class="button button-secondary" id="add-library-to-lot" type="button">Добавить выбранной квартире</button>
+                <button class="button button-primary" id="add-library-to-selection" type="button">Добавить текущей выборке</button>
+              </div>
+              <p class="image-upload-status" id="image-library-status"></p>
             </div>
-            <div class="image-library-grid" id="image-library-grid"></div>
-            <div class="image-library-actions">
-              <label class="field"><span>Куда добавить</span><select id="library-image-mode"><option value="start">В начало</option><option value="end" selected>В конец</option><option value="position">На позицию</option></select></label>
-              <label class="field"><span>Позиция</span><input id="library-image-position" type="number" min="1" max="40" value="2" disabled></label>
-              <button class="button button-secondary" id="add-library-to-lot" type="button">Добавить выбранной квартире</button>
-              <button class="button button-primary" id="add-library-to-selection" type="button">Добавить текущей выборке</button>
-            </div>
-            <p class="image-upload-status" id="image-library-status"></p>
-          </section>
+          </details>
           <div class="media-layout">
             <section class="panel media-editor">
               <div class="panel-heading">
@@ -166,15 +180,6 @@
               </div>
               <p class="helper media-helper">Перетаскивайте карточки мышью или используйте стрелки. Кнопка «Исключить из фида» не удаляет файл из исходного фида или хранилища: изображение просто не попадёт в новый XML для Avito, и его можно будет вернуть. Брендированную карточку можно перемещать, но нельзя исключить.</p>
               <div class="image-gallery" id="image-gallery"></div>
-              <section class="image-upload-block">
-                <input id="image-file-input" type="file" accept="image/jpeg,image/png,image/webp" hidden>
-                <div class="image-drop-zone" id="image-drop-zone" role="button" tabindex="0" aria-label="Добавить изображение с компьютера">
-                  <span class="image-drop-icon">＋</span>
-                  <div><strong>Загрузить в библиотеку и добавить</strong><small>JPG, PNG или WebP · перед загрузкой проверим точные и похожие изображения</small></div>
-                  <button class="button button-secondary" id="choose-image-file" type="button">Выбрать файл</button>
-                </div>
-                <p class="image-upload-status" id="image-upload-status"></p>
-              </section>
               <details class="url-alternative">
                 <summary>Добавить по HTTPS-ссылке</summary>
                 <div class="add-image-row">
@@ -182,28 +187,18 @@
                   <button class="button button-secondary" id="add-image-url">Добавить</button>
                 </div>
               </details>
-              <div class="removed-images hidden" id="removed-images-wrap">
-                <h3>Не попадут в фид Avito</h3>
+              <details class="removed-images hidden" id="removed-images-wrap">
+                <summary><strong>Не попадут в фид Avito</strong><span id="removed-images-summary"></span></summary>
                 <p>Файлы остаются в источнике или хранилище. Здесь их можно вернуть в итоговую галерею.</p>
                 <div id="removed-images"></div>
-              </div>
+              </details>
             </section>
             <aside class="panel bulk-panel">
               <p class="eyebrow">Массовая операция</p>
-              <h2>Добавить для выборки</h2>
-              <p class="helper">Новые файлы попадут в общую библиотеку объекта и будут добавлены всем квартирам из текущей выборки.</p>
-              <input id="bulk-image-file-input" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden>
-              <div class="bulk-image-drop-zone" id="bulk-image-drop-zone" role="button" tabindex="0" aria-label="Выбрать изображения для массового добавления">
-                <span class="image-drop-icon">＋</span>
-                <div><strong>Выбрать изображения</strong><small>До 10 файлов · JPG, PNG или WebP</small></div>
-              </div>
-              <div class="bulk-image-selection" id="bulk-image-selection"></div>
-              <div class="field-row bulk-image-position-row">
-                <label class="field"><span>Куда добавить</span><select id="bulk-image-mode"><option value="start">В начало</option><option value="end">В конец</option><option value="position">На позицию</option></select></label>
-                <label class="field" id="bulk-image-position-field"><span>Позиция</span><input id="bulk-image-position" type="number" min="1" max="40" value="2" disabled></label>
-              </div>
-              <button class="button button-primary full-width" id="apply-image-add-bulk">Загрузить и создать правило</button>
-              <p class="image-upload-status" id="bulk-image-upload-status"></p>
+              <h2>Исключить для выборки</h2>
+              <p class="helper">Отметьте конкретные изображения текущего лота. Правило исключит изображения с теми же ID у квартир из текущей выборки.</p>
+              <div class="bulk-image-hide-picker" id="bulk-image-hide-picker"></div>
+              <button class="button button-primary full-width" id="apply-image-hide-bulk" type="button">Исключить выбранные изображения</button>
               <div class="bulk-operation-divider"></div>
               <p class="eyebrow">Массовая операция</p>
               <h2>Переставить для выборки</h2>
@@ -386,6 +381,16 @@
         </section>
 
         <section class="view" id="view-preview">
+          <div class="toolbar panel media-toolbar preview-toolbar">
+            <label><span>Дом</span><select id="preview-filter-house"><option value="">Все дома</option></select></label>
+            <label><span>Комнатность</span><select id="preview-filter-rooms"><option value="">Любая</option></select></label>
+            <label><span>Этаж</span><select id="preview-filter-floor"><option value="">Любой</option></select></label>
+            <label class="plan-filter-field"><span>Планировка</span><select id="preview-filter-plan"><option value="">Любая</option></select></label>
+            <div class="lot-apartment-filter" id="preview-apartment-filter"></div>
+            <label class="search-field"><span>Поиск по ID</span><input id="preview-filter-search" type="search" placeholder="ID квартиры"></label>
+            <button class="button button-secondary lot-chessboard-button" type="button" data-open-chessboard="preview">Выбрать в шахматке</button>
+            <div class="toolbar-count"><strong id="preview-filter-count">0</strong><span>в выборке</span></div>
+          </div>
           <div class="preview-layout">
             <section class="panel preview-stage-panel">
               <div class="panel-heading"><div><p class="eyebrow">Живой результат</p><h2>Предпросмотр карточки</h2></div><label class="compact-select"><span>Квартира</span><select id="preview-lot"></select></label></div>
@@ -412,6 +417,14 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="modal-backdrop hidden" id="image-lightbox" role="dialog" aria-modal="true" aria-labelledby="image-lightbox-title">
+    <div class="image-lightbox-modal">
+      <button class="image-lightbox-close" id="close-image-lightbox" type="button" aria-label="Закрыть увеличенное изображение">×</button>
+      <h2 class="sr-only" id="image-lightbox-title">Увеличенный просмотр изображения</h2>
+      <img id="image-lightbox-image" src="" alt="">
+      <p id="image-lightbox-caption"></p>
+    </div>
+  </div>
   <div class="modal-backdrop hidden" id="publish-modal" role="dialog" aria-modal="true" aria-labelledby="publish-title">
     <div class="modal">
       <p class="eyebrow">Публикация настроек</p>
@@ -508,8 +521,8 @@
       </div>
     </div>
   </div>
-  <script src="runtime-config.js?v=20261015-chessboard-1" defer></script>
-  <script src="access-config.js?v=20261015-chessboard-1" defer></script>
-  <script src="access.js?v=20261020-image-library-5" defer></script>
+  <script src="runtime-config.js?v=20261022-image-workflow-1" defer></script>
+  <script src="access-config.js?v=20261022-image-workflow-1" defer></script>
+  <script src="access.js?v=20261022-image-workflow-1" defer></script>
 </body>
 </html>
