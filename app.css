@@ -147,7 +147,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--green);box-shadow:0 0
 .image-library-card-source{position:absolute;z-index:2;top:8px;right:8px;padding:4px 6px;border-radius:999px;background:rgba(13,21,54,.78);color:#fff;font-size:7px}
 .image-library-delete{width:26px;height:26px;border:1px solid #efd3d3;border-radius:7px;background:#fff7f7;color:var(--danger);font-size:15px;line-height:1}
 .image-library-delete:disabled{opacity:.4;cursor:not-allowed}
-.image-preview-button{position:absolute;z-index:3;right:8px;top:8px;width:31px;height:31px;border:1px solid rgba(255,255,255,.6);border-radius:9px;background:rgba(13,21,54,.78);color:#fff;font-size:15px;cursor:zoom-in}
+.image-preview-button{position:absolute;z-index:3;right:8px;top:8px;width:31px;height:31px;padding:0;border:1px solid rgba(255,255,255,.6);border-radius:9px;background:rgba(13,21,54,.78);color:#fff;display:grid;place-items:center;cursor:zoom-in}
+.image-preview-button svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
 .image-kind+.image-preview-button{top:auto;right:8px;bottom:34px}
 .removed-images>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;list-style:none}
 .removed-images>summary::-webkit-details-marker{display:none}

@@ -568,6 +568,8 @@ const contentTypes = {
   await page.locator('#image-gallery [data-lightbox-src]').first().click();
   const galleryLightboxWorks = await page.locator('#image-lightbox').isVisible();
   await page.locator('#close-image-lightbox').click();
+  const galleryZoomIconWorks = await page.locator('#image-gallery .image-preview-button[aria-label="Увеличить изображение"] svg').count() ===
+    await page.locator('#image-gallery .image-preview-button').count();
 
   const dragOrderBefore = await page.locator('#image-gallery [data-image-drag]').evaluateAll((cards) => cards.map((card) => card.dataset.imageDrag));
   let imageMouseDragWorks = false;
@@ -1065,6 +1067,7 @@ const contentTypes = {
       library_cards_visible: libraryCardsVisible,
       library_lightbox_works: libraryLightboxWorks,
       gallery_lightbox_works: galleryLightboxWorks,
+      gallery_zoom_icon_works: galleryZoomIconWorks,
       parameter_lightbox_works: parameterLightboxWorks,
       library_delete_works: libraryDeleteWorks,
       obsolete_build_button_removed: obsoleteLibraryBuildButtonRemoved,
@@ -1115,6 +1118,7 @@ const contentTypes = {
   result.ok = result.ok && previewToolbarLayout.planWidth <= 270 && previewToolbarLayout.aligned &&
     materialFiltersWork && materialToolbarLayout.planWidth <= 270 && materialToolbarLayout.aligned && promotionColorRolesWork &&
     materialChessboardImmediate.works && previewChessboardImmediate.works &&
+    galleryZoomIconWorks &&
     liveMaterialPreview.promotionFrameColor === '#123ABC' && liveMaterialPreview.promotionTextColor === '#123ABC' &&
     submitted.material_settings.promotion_frame_color === '#123ABC' && submitted.material_settings.promotion_text_color === '#123ABC';
   result.preview_filters = { works: previewFiltersWork, layout: previewToolbarLayout };

@@ -40,7 +40,7 @@
   function loadApplication() {
     if (document.querySelector('script[data-feed-studio-app]')) return;
     var script = document.createElement('script');
-    script.src = 'app.js?v=20261022-chessboard-1';
+    script.src = 'app.js?v=20261022-image-zoom-1';
     script.dataset.feedStudioApp = '1';
     document.body.appendChild(script);
   }

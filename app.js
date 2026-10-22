@@ -2956,7 +2956,7 @@
         (index + 1) + '" loading="lazy" decoding="async"><span class="image-position">' + (index + 1) + '</span><span class="image-drag-handle">⋮⋮ Перетащить</span><span class="image-kind">' +
         esc(image.kind === 'generated' ? 'Feed Studio' : image.kind === 'source' ? 'Исходный фид' : 'Добавлено') +
         '</span><button class="image-preview-button" type="button" data-lightbox-src="' + esc(imageUrl) + '" data-lightbox-caption="' +
-        esc(image.label) + '">Увеличить</button></div><div class="image-item-copy"><small title="' + esc(image.label) + '">' + esc(image.label) +
+        esc(image.label) + '" aria-label="Увеличить изображение" title="Увеличить изображение"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="10" cy="10" r="5.5"></circle><path d="M14 14l5 5M10 7v6M7 10h6"></path></svg></button></div><div class="image-item-copy"><small title="' + esc(image.label) + '">' + esc(image.label) +
         '</small><div class="image-actions"><button data-image-left="' + esc(image.id) + '" ' + (index === 0 ? 'disabled' : '') +
         '>← Выше</button><button data-image-right="' + esc(image.id) + '" ' + (index === images.length - 1 ? 'disabled' : '') +
         '>Ниже →</button><button class="remove-image" data-remove-image="' + esc(image.id) + '" ' +
