@@ -122,6 +122,89 @@
       encodeURIComponent(name) + '=' + encodeURIComponent(value);
   };
 
+  function wireResilientImages(root) {
+    if (!root) return;
+    $$('img[data-resilient-src]', root).forEach(function (image) {
+      var source = image.dataset.resilientSrc;
+      var preview = image.closest('.image-item-preview');
+      var retryButton = preview && $('.image-retry-button', preview);
+      var attempt = 0;
+      var retryTimer = null;
+      var loadTimer = null;
+      var observer = null;
+
+      function clearTimers() {
+        if (retryTimer) window.clearTimeout(retryTimer);
+        if (loadTimer) window.clearTimeout(loadTimer);
+        retryTimer = null;
+        loadTimer = null;
+      }
+
+      function markLoaded() {
+        clearTimers();
+        if (observer) observer.disconnect();
+        if (preview) preview.classList.remove('image-load-pending', 'image-load-failed');
+        if (retryButton) retryButton.classList.add('hidden');
+      }
+
+      function markFailed() {
+        clearTimers();
+        if (preview) preview.classList.remove('image-load-pending');
+        if (preview) preview.classList.add('image-load-failed');
+        if (retryButton) retryButton.classList.remove('hidden');
+      }
+
+      function watchLoad() {
+        clearTimers();
+        if (preview) preview.classList.add('image-load-pending');
+        loadTimer = window.setTimeout(function () {
+          if (image.complete && image.naturalWidth > 0) markLoaded();
+          else scheduleRetry();
+        }, 7000);
+      }
+
+      function retryLoad() {
+        attempt += 1;
+        if (preview) preview.classList.remove('image-load-failed');
+        if (retryButton) retryButton.classList.add('hidden');
+        image.loading = 'eager';
+        image.src = appendQuery(source, 'feed_studio_image_retry', attempt + '-' + Date.now());
+        watchLoad();
+      }
+
+      function scheduleRetry() {
+        clearTimers();
+        if (observer) observer.disconnect();
+        if (attempt >= 2) {
+          markFailed();
+          return;
+        }
+        retryTimer = window.setTimeout(retryLoad, attempt ? 900 : 350);
+      }
+
+      image.addEventListener('load', markLoaded);
+      image.addEventListener('error', scheduleRetry);
+      if (retryButton) retryButton.addEventListener('click', function () {
+        attempt = 0;
+        retryLoad();
+      });
+
+      if (image.complete) {
+        if (image.naturalWidth > 0) markLoaded();
+        else scheduleRetry();
+      } else if ('IntersectionObserver' in window) {
+        observer = new IntersectionObserver(function (entries) {
+          if (!entries.some(function (entry) { return entry.isIntersecting; })) return;
+          observer.disconnect();
+          watchLoad();
+        }, { rootMargin: '240px' });
+        observer.observe(image);
+      } else {
+        watchLoad();
+      }
+    });
+  }
+
   async function requestJsonTarget(url, cacheMode) {
     var target = absoluteUrl(url);
     var lastError = null;
@@ -2952,8 +3035,8 @@
       var deleteUpload = managedUploadPath(item, image) ? '<button class="delete-upload" data-delete-upload="' + esc(image.id) +
         '" title="Физически удалить загруженный файл">Удалить файл</button>' : '';
       return '<article class="image-item" draggable="true" data-image-drag="' + esc(image.id) + '" aria-label="Изображение ' + (index + 1) +
-        '. Можно перетащить мышью"><div class="image-item-preview"><img src="' + esc(imageUrl) + '" alt="Изображение ' +
-        (index + 1) + '" loading="lazy" decoding="async"><span class="image-position">' + (index + 1) + '</span><span class="image-drag-handle">⋮⋮ Перетащить</span><span class="image-kind">' +
+        '. Можно перетащить мышью"><div class="image-item-preview"><img src="' + esc(imageUrl) + '" data-resilient-src="' + esc(imageUrl) + '" alt="Изображение ' +
+        (index + 1) + '" loading="lazy" decoding="async"><button class="image-retry-button hidden" type="button" aria-label="Повторить загрузку изображения">Повторить загрузку</button><span class="image-position">' + (index + 1) + '</span><span class="image-drag-handle">⋮⋮ Перетащить</span><span class="image-kind">' +
         esc(image.kind === 'generated' ? 'Feed Studio' : image.kind === 'source' ? 'Исходный фид' : 'Добавлено') +
         '</span><button class="image-preview-button" type="button" data-lightbox-src="' + esc(imageUrl) + '" data-lightbox-caption="' +
         esc(image.label) + '" aria-label="Увеличить изображение" title="Увеличить изображение"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="10" cy="10" r="5.5"></circle><path d="M14 14l5 5M10 7v6M7 10h6"></path></svg></button></div><div class="image-item-copy"><small title="' + esc(image.label) + '">' + esc(image.label) +
@@ -2963,6 +3046,7 @@
         (image.kind === 'generated' ? 'disabled title="Брендированную карточку нельзя исключить"' :
           'title="Не включать изображение в новый фид Avito"') + '>Исключить из фида</button>' + deleteUpload + '</div></div></article>';
     }).join('');
+    wireResilientImages($('#image-gallery'));
     function saveOrder(nextImages) {
       imageOverride(item).order = nextImages.map(function (image) { return image.id; });
       setDirty(true);

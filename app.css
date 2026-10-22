@@ -150,6 +150,10 @@ input:focus,select:focus,textarea:focus{border-color:var(--green);box-shadow:0 0
 .image-preview-button{position:absolute;z-index:3;right:8px;top:8px;width:31px;height:31px;padding:0;border:1px solid rgba(255,255,255,.6);border-radius:9px;background:rgba(13,21,54,.78);color:#fff;display:grid;place-items:center;cursor:zoom-in}
 .image-preview-button svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
 .image-kind+.image-preview-button{top:auto;right:8px;bottom:34px}
+.image-item-preview.image-load-pending::after{content:"";position:absolute;z-index:2;left:50%;top:50%;width:22px;height:22px;margin:-11px;border:3px solid rgba(126,54,255,.2);border-top-color:var(--purple);border-radius:50%;animation:image-load-spin .8s linear infinite;pointer-events:none}
+.image-item-preview.image-load-failed::before{content:"Изображение не загрузилось";position:absolute;z-index:2;left:12px;right:12px;top:50%;transform:translateY(-34px);color:var(--muted);font-size:9px;font-weight:700;text-align:center}
+.image-retry-button{position:absolute;z-index:3;left:50%;top:50%;transform:translate(-50%,2px);min-height:30px;padding:0 12px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--green-ink);font-size:9px;font-weight:750;white-space:nowrap}
+@keyframes image-load-spin{to{transform:rotate(360deg)}}
 .removed-images>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;list-style:none}
 .removed-images>summary::-webkit-details-marker{display:none}
 .removed-images>summary strong{font-size:13px}

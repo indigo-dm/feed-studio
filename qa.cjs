@@ -17,6 +17,8 @@ const qaInventory = JSON.parse(fs.readFileSync(path.join(dataRoot, 'projects', '
 const qaPublishedSettings = JSON.parse(fs.readFileSync(path.join(dataRoot, 'projects', 'novyy-gorizont', 'settings.json'), 'utf8'));
 const qaLot = qaInventory.items[0];
 const qaSecondLot = qaInventory.items[1];
+const qaFlakyImageId = qaLot?.source_images?.[0]?.id || '';
+if (qaFlakyImageId) qaLot.source_images[0].url = 'https://flaky.example.test/gallery-image.jpg';
 qaInventory.items.forEach((item, index) => {
   item.source_values ||= {};
   item.source_values.ApartmentNumber = String(100001 + index);
@@ -52,6 +54,7 @@ const contentTypes = {
   let deletedMaterial = null;
   let deletedLibrary = null;
   let bulkImageUploads = 0;
+  let flakyGalleryRequests = 0;
   const projectDataRequests = {};
   const accessConfig = fs.readFileSync(path.join(frontend, 'access-config.js'), 'utf8');
   const hash = accessConfig.match(/[0-9a-f]{64}/i)[0].toLowerCase();
@@ -82,6 +85,11 @@ const contentTypes = {
     const target = path.resolve(frontend, relative);
     if (!target.startsWith(path.resolve(frontend)) || !fs.existsSync(target)) return route.fulfill({ status: 404, body: 'Not found' });
     await route.fulfill({ status: 200, contentType: contentTypes[path.extname(target).toLowerCase()] || 'application/octet-stream', body: fs.readFileSync(target) });
+  });
+  await page.route('https://flaky.example.test/**', async (route) => {
+    flakyGalleryRequests += 1;
+    if (flakyGalleryRequests === 1) return route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('invalid-image') });
+    return route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNkYGD4z8DAwMDAxAADAAwBAQDJxQ8AAAAASUVORK5CYII=', 'base64') });
   });
   await page.route('https://feed-api.indigo-dm.ru/**', async (route) => {
     const url = new URL(route.request().url());
@@ -436,6 +444,14 @@ const contentTypes = {
   await page.locator('#apply-chessboard').click();
 
   await page.locator('[data-view="images"]').click();
+  await page.waitForFunction((imageId) => {
+    const image = document.querySelector(`#image-gallery [data-image-drag="${imageId}"] img[data-resilient-src]`);
+    return image && image.complete && image.naturalWidth > 0;
+  }, qaFlakyImageId);
+  const flakyImageCard = page.locator(`#image-gallery [data-image-drag="${qaFlakyImageId}"] .image-item-preview`);
+  const galleryImageRetryWorks = flakyGalleryRequests >= 2 &&
+    !(await flakyImageCard.evaluate((element) => element.classList.contains('image-load-failed'))) &&
+    await flakyImageCard.locator('.image-retry-button.hidden').count() === 1;
   const apartmentFilterSectionsAvailable = await page.locator('#lot-apartment-filter .toolbar-apartment-multi').count() === 1 &&
     await page.locator('#image-apartment-filter .toolbar-apartment-multi').count() === 1 &&
     await page.locator('#parameter-apartment-filter .toolbar-apartment-multi').count() === 1 &&
@@ -1068,6 +1084,7 @@ const contentTypes = {
       library_lightbox_works: libraryLightboxWorks,
       gallery_lightbox_works: galleryLightboxWorks,
       gallery_zoom_icon_works: galleryZoomIconWorks,
+      gallery_image_retry_works: galleryImageRetryWorks,
       parameter_lightbox_works: parameterLightboxWorks,
       library_delete_works: libraryDeleteWorks,
       obsolete_build_button_removed: obsoleteLibraryBuildButtonRemoved,
@@ -1118,7 +1135,7 @@ const contentTypes = {
   result.ok = result.ok && previewToolbarLayout.planWidth <= 270 && previewToolbarLayout.aligned &&
     materialFiltersWork && materialToolbarLayout.planWidth <= 270 && materialToolbarLayout.aligned && promotionColorRolesWork &&
     materialChessboardImmediate.works && previewChessboardImmediate.works &&
-    galleryZoomIconWorks &&
+    galleryZoomIconWorks && galleryImageRetryWorks &&
     liveMaterialPreview.promotionFrameColor === '#123ABC' && liveMaterialPreview.promotionTextColor === '#123ABC' &&
     submitted.material_settings.promotion_frame_color === '#123ABC' && submitted.material_settings.promotion_text_color === '#123ABC';
   result.preview_filters = { works: previewFiltersWork, layout: previewToolbarLayout };
