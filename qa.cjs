@@ -50,6 +50,7 @@ const contentTypes = {
   let submitted = null;
   let sourceFeedSaved = null;
   let deletedMaterial = null;
+  let deletedLibrary = null;
   let bulkImageUploads = 0;
   const projectDataRequests = {};
   const accessConfig = fs.readFileSync(path.join(frontend, 'access-config.js'), 'utf8');
@@ -160,11 +161,17 @@ const contentTypes = {
         { id: 'lib-qa-existing', name: 'Готовый рендер', url: 'https://assets.example.test/lib-qa-existing.jpg', path: 'uploads/novyy-gorizont/library/lib-qa-existing.jpg', source: 'library' }
       ] }) });
     }
+    if (url.pathname === '/image-library' && route.request().method() === 'DELETE') {
+      deletedLibrary = JSON.parse(route.request().postData());
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({
+        deleted: true, project: deletedLibrary.project, image_id: deletedLibrary.image_id
+      }) });
+    }
     if (url.pathname === '/image-library/upload' && route.request().method() === 'POST') {
       bulkImageUploads += 1;
       const id = `lib-qa-${bulkImageUploads}`;
       return route.fulfill({ status: 201, contentType: 'application/json', headers: cors, body: JSON.stringify({
-        id, name: `Загружено ${bulkImageUploads}`, url: `https://assets.example.test/${id}.jpg`, path: `uploads/novyy-gorizont/library/${id}.jpg`, size: 51200, storage: 'r2'
+        id, name: `Загружено ${bulkImageUploads}`, url: `https://assets.example.test/${id}.jpg`, path: `uploads/novyy-gorizont/library/${id}.jpg`, size: 51200, source: 'library', storage: 'r2'
       }) });
     }
     if (url.pathname === '/project/setup' && route.request().method() === 'GET') {
@@ -277,7 +284,8 @@ const contentTypes = {
   const publicFeedHref = await page.locator('#full-feed-link').getAttribute('href');
   await page.locator('#source-feed-url').fill('https://profitbase.example/private-feed?token=qa-secret');
   await page.locator('#save-source-feed').click();
-  await page.waitForFunction(() => document.querySelector('#source-feed-badge')?.textContent === 'Подключён');
+  await page.waitForFunction(() => document.querySelector('#source-feed-detail')?.textContent.includes('Закрытый адрес исходного фида сохранён') &&
+    document.querySelector('#source-feed-url')?.value === '');
   const sourceFeedSettingWorks = sourceFeedSaved?.project === 'novyy-gorizont' &&
     sourceFeedSaved?.url === 'https://profitbase.example/private-feed?token=qa-secret' &&
     (await page.locator('#source-feed-url').inputValue()) === '' &&
@@ -358,11 +366,17 @@ const contentTypes = {
     noteVisible: !document.querySelector('#preview-material-note')?.classList.contains('hidden')
   }));
   await page.locator('#preview-canvas').screenshot({ path: path.join(os.tmpdir(), 'feed-studio-live-material-preview-qa.png') });
+  await page.locator('#preview-filter-search').fill(String(qaLot.id));
+  const previewFiltersWork = Number(await page.locator('#preview-filter-count').innerText()) === 1 &&
+    await page.locator('#preview-lot').inputValue() === String(qaLot.id) &&
+    await page.locator('#preview-apartment-filter .toolbar-apartment-multi').count() === 1;
+  await page.locator('#preview-filter-search').fill('');
 
   await page.locator('[data-view="images"]').click();
   const apartmentFilterSectionsAvailable = await page.locator('#lot-apartment-filter .toolbar-apartment-multi').count() === 1 &&
     await page.locator('#image-apartment-filter .toolbar-apartment-multi').count() === 1 &&
-    await page.locator('#parameter-apartment-filter .toolbar-apartment-multi').count() === 1;
+    await page.locator('#parameter-apartment-filter .toolbar-apartment-multi').count() === 1 &&
+    await page.locator('#preview-apartment-filter .toolbar-apartment-multi').count() === 1;
   const qaApartmentNumber = String(qaInventory.items[0].source_values.ApartmentNumber);
   const qaSecondApartmentNumber = String(qaInventory.items[1].source_values.ApartmentNumber);
   await page.locator('#image-apartment-filter summary').click();
@@ -374,7 +388,12 @@ const contentTypes = {
   await page.locator('#image-apartment-filter [data-apartment-filter-clear]').click();
 
   await page.waitForFunction(() => document.querySelectorAll('#image-library-grid .image-library-card').length > 0);
+  const libraryStartsCollapsed = !(await page.locator('.image-library-panel').evaluate((element) => element.hasAttribute('open')));
+  await page.locator('.image-library-panel').evaluate((element) => { element.open = true; });
   const libraryCardsVisible = await page.locator('#image-library-grid .image-library-card').count() > 0;
+  await page.locator('.image-library-preview').first().click();
+  const libraryLightboxWorks = await page.locator('#image-lightbox').isVisible();
+  await page.locator('#close-image-lightbox').click();
   const obsoleteLibraryBuildButtonRemoved = await page.locator('#migrate-image-library').count() === 0;
   await page.locator('[data-library-image="lib-qa-existing"]').check();
   const galleryBeforeLibrary = await page.locator('#image-gallery .image-item').count();
@@ -469,6 +488,23 @@ const contentTypes = {
   await page.locator('#chessboard-clear').click();
   await page.locator('#apply-chessboard').click();
 
+  const bulkHideInput = page.locator('#bulk-image-hide-picker [data-bulk-hide-image]').first();
+  const bulkHiddenImageId = await bulkHideInput.getAttribute('data-bulk-hide-image');
+  const galleryBeforeBulkHide = await page.locator('#image-gallery .image-item').count();
+  await bulkHideInput.check();
+  await page.locator('#apply-image-hide-bulk').click();
+  const bulkHideRule = page.locator('#image-bulk-rules .bulk-rule').last();
+  const bulkHideRuleText = await bulkHideRule.innerText();
+  const bulkImageHideWorks = bulkHideRuleText.includes('Исключить') &&
+    await page.locator(`#image-gallery [data-image-drag="${bulkHiddenImageId}"]`).count() === 0 &&
+    await page.locator('#image-gallery .image-item').count() === galleryBeforeBulkHide - 1;
+  await bulkHideRule.locator('[data-delete-image-rule]').click();
+  const bulkImageHideRestores = await page.locator(`#image-gallery [data-image-drag="${bulkHiddenImageId}"]`).count() === 1;
+
+  await page.locator('#image-gallery [data-lightbox-src]').first().click();
+  const galleryLightboxWorks = await page.locator('#image-lightbox').isVisible();
+  await page.locator('#close-image-lightbox').click();
+
   const dragOrderBefore = await page.locator('#image-gallery [data-image-drag]').evaluateAll((cards) => cards.map((card) => card.dataset.imageDrag));
   let imageMouseDragWorks = false;
   if (dragOrderBefore.length >= 2) {
@@ -510,19 +546,22 @@ const contentTypes = {
     const bulkFixture = fs.readFileSync(path.resolve(frontend, '..', 'novyy-gorizont', 'feed-generator', 'projects', 'novyy-gorizont', 'assets', 'selected-render.jpg'));
     const similarDialogHandler = (dialog) => dialog.accept();
     page.on('dialog', similarDialogHandler);
-    await page.locator('#bulk-image-file-input').setInputFiles([
+    await page.locator('#library-image-file-input').setInputFiles([
       { name: 'mass-one.jpg', mimeType: 'image/jpeg', buffer: bulkFixture },
       { name: 'mass-two.jpg', mimeType: 'image/jpeg', buffer: bulkFixture }
     ]);
-    await page.locator('#bulk-image-mode').selectOption('position');
-    await page.locator('#bulk-image-position').fill('2');
-    await page.locator('#apply-image-add-bulk').click();
-    await page.waitForFunction(() => document.querySelector('#bulk-image-upload-status')?.textContent.includes('Правило создано'));
+    await page.locator('#upload-library-images').click();
+    await page.waitForFunction(() => document.querySelector('#library-image-upload-status')?.textContent.includes('Загружено в библиотеку: 2'));
     page.off('dialog', similarDialogHandler);
+    const uploadSelectionOrderWorks = await page.locator('[data-library-image="lib-qa-1"] + b').innerText() === '1' &&
+      await page.locator('[data-library-image="lib-qa-2"] + b').innerText() === '2';
+    await page.locator('#library-image-mode').selectOption('position');
+    await page.locator('#library-image-position').fill('2');
+    await page.locator('#add-library-to-selection').click();
     const bulkAddRule = page.locator('#image-bulk-rules .bulk-rule').last();
     const bulkAddRuleText = await bulkAddRule.innerText();
     const galleryAfterBulkAdd = await page.locator('#image-gallery .image-item').count();
-    bulkImageAddRuleWorks = bulkImageUploads === 2 && bulkAddRuleText.includes('2 изобр.') && bulkAddRuleText.includes(`${selectedImagePlanCount} квартир`);
+    bulkImageAddRuleWorks = bulkImageUploads === 2 && uploadSelectionOrderWorks && bulkAddRuleText.includes('2 изобр.') && bulkAddRuleText.includes(`${selectedImagePlanCount} квартир`);
     bulkImageAddPreviewWorks = galleryAfterBulkAdd === galleryBeforeBulkAdd + 2;
     await page.locator('.url-alternative').evaluate((details) => { details.open = true; });
     await page.locator('#new-image-url').fill('https://assets.example.test/bulk-added-regression.png');
@@ -549,8 +588,14 @@ const contentTypes = {
       imageRuleScopeText.includes('Подходящие лоты') && imageRuleScopeText.includes('Выбор по ID');
     imageRuleActionDetailed = imageRuleActionText.includes('Переместить изображение с позиции');
     await page.screenshot({ path: path.join(os.tmpdir(), 'feed-studio-images-plan-filter-qa.png'), fullPage: true });
+    const uploadedAddRule = page.locator('[data-bulk-rule-details^="image-add-rule-"]').last().locator('xpath=..');
+    await uploadedAddRule.locator('[data-delete-image-rule]').click();
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.locator('[data-delete-library-image="lib-qa-1"]').click();
+    await page.waitForFunction(() => !document.querySelector('[data-library-image="lib-qa-1"]'));
     await page.locator('#image-filter-plan').selectOption('');
   }
+  const libraryDeleteWorks = deletedLibrary?.project === 'novyy-gorizont' && deletedLibrary?.image_id === 'lib-qa-1';
 
   await page.locator('[data-view="parameters"]').click();
   const staleEditableRule = page.locator('[data-bulk-rule-details="qa-stale-parameter-rule"]').locator('xpath=..');
@@ -640,6 +685,9 @@ const contentTypes = {
     parameterContextText.includes(String(parameterItem.source_values.ApartmentNumber)) &&
     parameterContextText.includes(String(parameterItem.id)) &&
     parameterContextImage === String(parameterItem.source_images[0].url);
+  await page.locator('#parameter-lot-context [data-lightbox-src]').click();
+  const parameterLightboxWorks = await page.locator('#image-lightbox').isVisible();
+  await page.locator('#close-image-lightbox').click();
   const sourceAddress = String(parameterItem?.source_values?.Address || '').replace(/\s+/g, ' ').trim();
   const descriptionShortcodeExcluded = await page.locator('#description-editor-wrap [data-description-shortcode] option[value="Description"]').count() === 0;
   const addressOption = page.locator('#description-editor-wrap [data-description-shortcode] option[value="Address"]');
@@ -816,7 +864,7 @@ const contentTypes = {
   await page.waitForFunction(() => window.localStorage.getItem('feed-studio-publish-v1-novyy-gorizont'));
 
   const result = {
-    ok: errors.length === 0 && apartmentFilterSectionsAvailable && apartmentFilterWorks && libraryCardsVisible && obsoleteLibraryBuildButtonRemoved && libraryLotAddWorks && duplicateLibraryAddPrevented && librarySelectionAddWorks && librarySingularLabelsWork && individualImagePreservedAfterBulkDelete && mixedLibraryAddWorks && chessboardSelectionWorks && imageMouseDragWorks && bulkImageAddRuleWorks && bulkImageAddPreviewWorks && promotionChessboardWorks && loadingIndicatorAvailable && projectSessionCacheWorks && redundantDraftCleared && emptyPublishDisabled && !emptyDraftStatus.includes('не применён') && publishedChangesModalVisible && publishedChangesCount >= 2 && publishedChangesButtonText.includes(String(publishedChangesCount)) && publishedChangeCategories.includes('Акции') && publishedChangeCategories.includes('Материалы') && publishedChangesReadOnly && stalePublishedRuleWarned && publishedChangeDate.includes('Опубликованная версия') && publishedChangeDetailsWork && projectSwitchingWorks && projectRefreshPersistenceWorks && sourceFeedSettingWorks && staleManualDateHidden && sourceStateText.includes('Источник проверен') && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 5 && activeBefore === 2 && unusedDeleteAvailable && unusedMaterialDeleted && builtInDeleteAvailable && builtInMaterialDeleted && cardsAfterMaterialDelete === initialCards - 1 && selectedMaterialDeleteButtons === 0 && visibleProfitbaseMentions === 0 && selectedLibrary.some((text) => text.includes('Рендер в макете')) && cardsAfterUpload === initialCards - 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 4 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.includes('Основной') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && materialWorkspacePreviewVisible && cardOptionsDefaultOn && logoPanelDefaultOff && logoPanelToggleWorks && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.backgroundRender === 'uploads/mat-qa-library.webp' && liveMaterialPreview.showRender === 'false' && liveMaterialPreview.color === '#123ABC' && liveMaterialPreview.houseBadge === 'false' && liveMaterialPreview.decoration === 'false' && liveMaterialPreview.logoPanel === 'false' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && imagePlanOptions > 1 && /^plan-[0-9a-f]{12}$/.test(selectedImagePlan) && selectedImagePlanCount > 0 && imagePlanRuleCreated && imageRuleStartsCollapsed && imageRuleExpanded && imageRuleScopeDetailed && imageRuleActionDetailed && bulkAddedImageMoved && individualParameterOptions === 11 && bulkParameterOptions === 12 && staleEditableRuleWarned && bulkDescriptionShortcodeExcluded && bulkDescriptionShortcodesUnique && modalDescriptionShortcodesUnique && bulkDescriptionStartsEmpty && bulkDescriptionExpandVisible && bulkDescriptionExpandVisible && bulkDescriptionModalVisible && bulkDescriptionModalSize.width > 700 && bulkDescriptionModalSize.height >= 320 && bulkDescriptionModalShortcodeInserted && bulkDescriptionContentPreserved && bulkDescriptionEscapeCloses && parameterRuleCreated && parameterRuleStartsCollapsed && parameterRuleExpanded && parameterRuleScopeDetailed && parameterRuleActionDetailed && descriptionEditorVisible && descriptionShortcodes >= 5 && individualDescriptionShortcodesUnique && descriptionShortcodeExcluded && addressShownFully && descriptionPreviewVisible && descriptionBlocksNormalized && descriptionFormattingPreserved && descriptionTemplateKept && descriptionResolved && roomsParameterAvailable && requiredTextParametersAvailable && addressStartsFromSource && developmentInputIsText && requiredTextParametersEditable && roomsStartsFromSource && studioRoomAvailable && roomValuesLimitedToFive && studioRoomFilterAvailable && roomsShortcodeUses_override && studioFilterMatchesOverride && planOptions > 1 && parameterToolbarLayout.planWidth <= 270 && parameterToolbarLayout.singleRow && /^plan-[0-9a-f]{12}$/.test(selectedPlan) && selectedPlanCount > 0 && parameterLotContextWorks && parameterIndividualBefore === 1 && parameterIndividualLabels.includes('Описание') && parameterIndividualLabels.includes('Количество комнат') && parameterIndividualLabels.includes('ID новостройки') && parameterIndividualLabels.includes('Адрес') && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && promotionMultiFiltersWork && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && mobilePublishedModal.visible && mobilePublishedModal.width === mobilePublishedModal.viewportWidth && mobilePublishedModal.height === mobilePublishedModal.viewportHeight && mobilePublishedModal.overflow <= 1 && excludedCardMarked === 1 && submitted && submitted.version === 4 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.rules.some((rule) => promotionTargets.every((target) => rule.floors.includes(String(target.floor)) && rule.apartment_numbers.includes(String(target.source_values.ApartmentNumber)))) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.background_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor) && submitted.card_settings.show_key_render === false && submitted.card_settings.show_house_badge === false && submitted.card_settings.show_decoration === false && submitted.card_settings.show_logo_panel === false,
+    ok: errors.length === 0 && previewFiltersWork && apartmentFilterSectionsAvailable && apartmentFilterWorks && libraryStartsCollapsed && libraryCardsVisible && libraryLightboxWorks && galleryLightboxWorks && parameterLightboxWorks && obsoleteLibraryBuildButtonRemoved && libraryLotAddWorks && duplicateLibraryAddPrevented && librarySelectionAddWorks && librarySingularLabelsWork && individualImagePreservedAfterBulkDelete && mixedLibraryAddWorks && libraryDeleteWorks && chessboardSelectionWorks && bulkImageHideWorks && bulkImageHideRestores && imageMouseDragWorks && bulkImageAddRuleWorks && bulkImageAddPreviewWorks && promotionChessboardWorks && loadingIndicatorAvailable && projectSessionCacheWorks && redundantDraftCleared && emptyPublishDisabled && !emptyDraftStatus.includes('не применён') && publishedChangesModalVisible && publishedChangesCount >= 2 && publishedChangesButtonText.includes(String(publishedChangesCount)) && publishedChangeCategories.includes('Акции') && publishedChangeCategories.includes('Материалы') && publishedChangesReadOnly && stalePublishedRuleWarned && publishedChangeDate.includes('Опубликованная версия') && publishedChangeDetailsWork && projectSwitchingWorks && projectRefreshPersistenceWorks && sourceFeedSettingWorks && staleManualDateHidden && sourceStateText.includes('Источник проверен') && publicFeedHref === 'https://indigo-dm.github.io/feed-studio/feeds/novyy-gorizont/avito.xml' && initialCards >= 5 && activeBefore === 2 && unusedDeleteAvailable && unusedMaterialDeleted && builtInDeleteAvailable && builtInMaterialDeleted && cardsAfterMaterialDelete === initialCards - 1 && selectedMaterialDeleteButtons === 0 && visibleProfitbaseMentions === 0 && selectedLibrary.some((text) => text.includes('Рендер в макете')) && cardsAfterUpload === initialCards - 1 && initialPaletteCount >= 4 && currentPaletteMarkers >= 4 && paletteAfterAdd === initialPaletteCount + 1 && selectedColorStatus.includes('Основной') && publishedColorDeleteButtons === 0 && paletteAfterDelete === initialPaletteCount && materialWorkspacePreviewVisible && cardOptionsDefaultOn && logoPanelDefaultOff && logoPanelToggleWorks && liveMaterialPreview.visible && liveMaterialPreview.publishedImageHidden && liveMaterialPreview.noteVisible && liveMaterialPreview.logo === 'uploads/mat-qa-new.png' && liveMaterialPreview.render === 'uploads/mat-qa-library.webp' && liveMaterialPreview.backgroundRender === 'uploads/mat-qa-library.webp' && liveMaterialPreview.showRender === 'false' && liveMaterialPreview.color === '#123ABC' && liveMaterialPreview.houseBadge === 'false' && liveMaterialPreview.decoration === 'false' && liveMaterialPreview.logoPanel === 'false' && imageIndividualBefore >= 1 && openedImageLot === imageIndividualId && imageIndividualAfter === imageIndividualBefore - 1 && imagePlanOptions > 1 && /^plan-[0-9a-f]{12}$/.test(selectedImagePlan) && selectedImagePlanCount > 0 && imagePlanRuleCreated && imageRuleStartsCollapsed && imageRuleExpanded && imageRuleScopeDetailed && imageRuleActionDetailed && bulkAddedImageMoved && individualParameterOptions === 11 && bulkParameterOptions === 12 && staleEditableRuleWarned && bulkDescriptionShortcodeExcluded && bulkDescriptionShortcodesUnique && modalDescriptionShortcodesUnique && bulkDescriptionStartsEmpty && bulkDescriptionExpandVisible && bulkDescriptionExpandVisible && bulkDescriptionModalVisible && bulkDescriptionModalSize.width > 700 && bulkDescriptionModalSize.height >= 320 && bulkDescriptionModalShortcodeInserted && bulkDescriptionContentPreserved && bulkDescriptionEscapeCloses && parameterRuleCreated && parameterRuleStartsCollapsed && parameterRuleExpanded && parameterRuleScopeDetailed && parameterRuleActionDetailed && descriptionEditorVisible && descriptionShortcodes >= 5 && individualDescriptionShortcodesUnique && descriptionShortcodeExcluded && addressShownFully && descriptionPreviewVisible && descriptionBlocksNormalized && descriptionFormattingPreserved && descriptionTemplateKept && descriptionResolved && roomsParameterAvailable && requiredTextParametersAvailable && addressStartsFromSource && developmentInputIsText && requiredTextParametersEditable && roomsStartsFromSource && studioRoomAvailable && roomValuesLimitedToFive && studioRoomFilterAvailable && roomsShortcodeUses_override && studioFilterMatchesOverride && planOptions > 1 && parameterToolbarLayout.planWidth <= 270 && parameterToolbarLayout.singleRow && /^plan-[0-9a-f]{12}$/.test(selectedPlan) && selectedPlanCount > 0 && parameterLotContextWorks && parameterIndividualBefore === 1 && parameterIndividualLabels.includes('Описание') && parameterIndividualLabels.includes('Количество комнат') && parameterIndividualLabels.includes('ID новостройки') && parameterIndividualLabels.includes('Адрес') && openedParameterLot === parameterLotId && parameterIndividualAfter === 0 && bulkParameterGap >= 20 && promotionIndividualBefore === 1 && openedPromotionLot === promotionLotId && promotionIndividualAfter === 0 && promotionMultiFiltersWork && materialOverlay && mobileOverflow <= 1 && mobileMaterialActions > 0 && mobilePublishedModal.visible && mobilePublishedModal.width === mobilePublishedModal.viewportWidth && mobilePublishedModal.height === mobilePublishedModal.viewportHeight && mobilePublishedModal.overflow <= 1 && excludedCardMarked === 1 && submitted && submitted.version === 4 && submitted.excluded_lot_ids.includes(excludedLotId) && submitted.rules.some((rule) => promotionTargets.every((target) => rule.floors.includes(String(target.floor)) && rule.apartment_numbers.includes(String(target.source_values.ApartmentNumber)))) && submitted.material_settings.logo === 'uploads/mat-qa-new.png' && submitted.material_settings.key_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.background_render === 'uploads/mat-qa-library.webp' && submitted.material_settings.primary_color === '#123ABC' && submitted.material_settings.palette.some((color) => color.value === '#123ABC') && !submitted.material_settings.palette.some((color) => color.value === removedColor) && submitted.card_settings.show_key_render === false && submitted.card_settings.show_house_badge === false && submitted.card_settings.show_decoration === false && submitted.card_settings.show_logo_panel === false,
     errors,
     empty_draft: {
       cleared: redundantDraftCleared,
@@ -937,16 +985,24 @@ const contentTypes = {
       works: promotionMultiFiltersWork
     },
     lot_selection: {
+      preview_filters_work: previewFiltersWork,
       apartment_filter_sections_available: apartmentFilterSectionsAvailable,
       apartment_filter_count: apartmentFilterCount,
       apartment_filter_works: apartmentFilterWorks,
       chessboard_selected_ids: chessboardChosenIds,
       chessboard_works: chessboardSelectionWorks,
       image_mouse_drag_works: imageMouseDragWorks,
+      bulk_image_hide_works: bulkImageHideWorks,
+      bulk_image_hide_restores: bulkImageHideRestores,
       promotion_chessboard_works: promotionChessboardWorks
     },
     image_plan_filter: {
+      library_starts_collapsed: libraryStartsCollapsed,
       library_cards_visible: libraryCardsVisible,
+      library_lightbox_works: libraryLightboxWorks,
+      gallery_lightbox_works: galleryLightboxWorks,
+      parameter_lightbox_works: parameterLightboxWorks,
+      library_delete_works: libraryDeleteWorks,
       obsolete_build_button_removed: obsoleteLibraryBuildButtonRemoved,
       library_lot_add_works: libraryLotAddWorks,
       duplicate_library_add_prevented: duplicateLibraryAddPrevented,
