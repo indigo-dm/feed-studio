@@ -294,6 +294,16 @@
             <div><strong>Материалы выбранного объекта</strong><span>Соберите внешний вид карточки сверху вниз: проверьте результат, настройте элементы, цвета и только затем выберите файлы.</span></div>
             <span class="notice-badge">АВТО</span>
           </div>
+          <div class="toolbar panel media-toolbar material-toolbar">
+            <label><span>Дом</span><select id="material-filter-house"><option value="">Все дома</option></select></label>
+            <label><span>Комнатность</span><select id="material-filter-rooms"><option value="">Любая</option></select></label>
+            <label><span>Этаж</span><select id="material-filter-floor"><option value="">Любой</option></select></label>
+            <label class="plan-filter-field"><span>Планировка</span><select id="material-filter-plan"><option value="">Любая</option></select></label>
+            <div class="lot-apartment-filter" id="material-apartment-filter"></div>
+            <label class="search-field"><span>Поиск по ID</span><input id="material-filter-search" type="search" placeholder="ID квартиры"></label>
+            <button class="button button-secondary lot-chessboard-button" type="button" data-open-chessboard="assets">Выбрать в шахматке</button>
+            <div class="toolbar-count"><strong id="material-filter-count">0</strong><span>в выборке</span></div>
+          </div>
           <section class="panel material-preview-panel" aria-labelledby="material-preview-title">
             <div class="panel-heading">
               <div><p class="eyebrow">Текущий результат</p><h2 id="material-preview-title">Предпросмотр брендированной карточки</h2><p class="section-copy">Все изменения ниже сразу отображаются здесь. В фид они попадут только после публикации.</p></div>
@@ -338,7 +348,7 @@
             <section class="palette-editor" aria-labelledby="palette-title">
               <div class="material-section-heading">
                 <span class="material-section-number">2</span>
-                <div><p class="eyebrow">Палитра проекта</p><h2 id="palette-title">Цвета макета</h2><p>Назначьте цветам роли: основной, фон, текст и подзаголовки.</p></div>
+                <div><p class="eyebrow">Палитра проекта</p><h2 id="palette-title">Цвета макета</h2><p>Назначьте цветам роли: основной, фон, текст, подзаголовки, рамка и текст акции.</p></div>
               </div>
               <div class="color-role-summary" id="color-role-summary"></div>
               <div class="color-add-row">

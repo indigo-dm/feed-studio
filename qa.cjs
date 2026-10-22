@@ -63,7 +63,7 @@ const contentTypes = {
       rules: publishedSettings.rules || [],
       image_settings: publishedSettings.image_settings || { lot_overrides: {}, bulk_rules: [] },
       parameter_settings: publishedSettings.parameter_settings || { lot_values: {}, bulk_rules: [] },
-      material_settings: publishedSettings.material_settings || { logo: '', key_render: '', background_render: '', primary_color: '', background_color: '', text_color: '', subtitle_color: '', palette: [] },
+      material_settings: publishedSettings.material_settings || { logo: '', key_render: '', background_render: '', primary_color: '', background_color: '', text_color: '', subtitle_color: '', promotion_frame_color: '', promotion_text_color: '', palette: [] },
       card_settings: publishedSettings.card_settings || { show_key_render: true, show_house_badge: true, show_decoration: true, show_logo_panel: false },
       excluded_lot_ids: publishedSettings.excluded_lot_ids || [],
       pending_upload_deletions: []
@@ -185,6 +185,7 @@ const contentTypes = {
           material_settings: {
             logo: 'logo.svg', key_render: 'key-render.jpg', background_render: '', primary_color: '#3F245C',
             background_color: '#3F245C', text_color: '#FFFFFF', subtitle_color: '#924694',
+            promotion_frame_color: '#924694', promotion_text_color: '#FFFFFF',
             palette: [{ name: 'Основной', value: '#3F245C' }, { name: 'Белый', value: '#FFFFFF' }, { name: 'Подзаголовки', value: '#924694' }]
           }
         },
@@ -332,13 +333,27 @@ const contentTypes = {
   await page.locator('#add-brand-color').click();
   const paletteAfterAdd = await page.locator('#brand-palette .palette-item').count();
   await page.locator('[data-use-color-role="primary_color"][data-use-brand-color="#123ABC"]').click();
+  await page.locator('[data-use-color-role="promotion_frame_color"][data-use-brand-color="#123ABC"]').click();
+  await page.locator('[data-use-color-role="promotion_text_color"][data-use-brand-color="#123ABC"]').click();
   const selectedColorStatus = await page.locator('#brand-palette .palette-item', { has: page.locator('[data-use-brand-color="#123ABC"]') }).locator('.palette-role-tags').innerText();
+  const promotionColorRolesWork = selectedColorStatus.includes('Рамка акции') && selectedColorStatus.includes('Текст акции');
   const publishedColorDeleteButtons = await page.locator('#brand-palette .palette-item.published [data-delete-brand-color]').count();
   const removedColor = await page.locator('#brand-palette [data-delete-brand-color]').first().getAttribute('data-delete-brand-color');
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('#brand-palette [data-delete-brand-color]').first().click();
   const paletteAfterDelete = await page.locator('#brand-palette .palette-item').count();
   const materialWorkspacePreviewVisible = await page.locator('#material-live-card').isVisible();
+  await page.locator('#material-filter-search').fill(String(qaLot.id));
+  const materialFiltersWork = Number(await page.locator('#material-filter-count').innerText()) === 1 &&
+    await page.locator('#material-preview-lot').inputValue() === String(qaLot.id) &&
+    await page.locator('#material-apartment-filter .toolbar-apartment-multi').count() === 1;
+  const materialToolbarLayout = await page.evaluate(() => {
+    const planBox = document.querySelector('#material-filter-plan').getBoundingClientRect();
+    const searchBox = document.querySelector('#material-filter-search').getBoundingClientRect();
+    const countBox = document.querySelector('.material-toolbar .toolbar-count').getBoundingClientRect();
+    return { planWidth: Math.round(planBox.width), aligned: planBox.top < searchBox.bottom && searchBox.top < planBox.bottom && planBox.top < countBox.bottom && countBox.top < planBox.bottom };
+  });
+  await page.locator('#material-filter-search').fill('');
   const cardOptionsDefaultOn = await page.locator('#show-key-render').isChecked() &&
     await page.locator('#show-house-badge').isChecked() &&
     await page.locator('#show-decoration').isChecked();
@@ -362,6 +377,8 @@ const contentTypes = {
     houseBadge: canvas.dataset.houseBadge,
     decoration: canvas.dataset.decoration,
     logoPanel: canvas.dataset.logoPanel,
+    promotionFrameColor: canvas.dataset.promotionFrameColor,
+    promotionTextColor: canvas.dataset.promotionTextColor,
     publishedImageHidden: document.querySelector('#preview-image')?.classList.contains('hidden'),
     noteVisible: !document.querySelector('#preview-material-note')?.classList.contains('hidden')
   }));
@@ -370,13 +387,20 @@ const contentTypes = {
   const previewFiltersWork = Number(await page.locator('#preview-filter-count').innerText()) === 1 &&
     await page.locator('#preview-lot').inputValue() === String(qaLot.id) &&
     await page.locator('#preview-apartment-filter .toolbar-apartment-multi').count() === 1;
+  const previewToolbarLayout = await page.evaluate(() => {
+    const planBox = document.querySelector('#preview-filter-plan').getBoundingClientRect();
+    const searchBox = document.querySelector('#preview-filter-search').getBoundingClientRect();
+    const countBox = document.querySelector('.preview-toolbar .toolbar-count').getBoundingClientRect();
+    return { planWidth: Math.round(planBox.width), aligned: planBox.top < searchBox.bottom && searchBox.top < planBox.bottom && planBox.top < countBox.bottom && countBox.top < planBox.bottom };
+  });
   await page.locator('#preview-filter-search').fill('');
 
   await page.locator('[data-view="images"]').click();
   const apartmentFilterSectionsAvailable = await page.locator('#lot-apartment-filter .toolbar-apartment-multi').count() === 1 &&
     await page.locator('#image-apartment-filter .toolbar-apartment-multi').count() === 1 &&
     await page.locator('#parameter-apartment-filter .toolbar-apartment-multi').count() === 1 &&
-    await page.locator('#preview-apartment-filter .toolbar-apartment-multi').count() === 1;
+    await page.locator('#preview-apartment-filter .toolbar-apartment-multi').count() === 1 &&
+    await page.locator('#material-apartment-filter .toolbar-apartment-multi').count() === 1;
   const qaApartmentNumber = String(qaInventory.items[0].source_values.ApartmentNumber);
   const qaSecondApartmentNumber = String(qaInventory.items[1].source_values.ApartmentNumber);
   await page.locator('#image-apartment-filter summary').click();
@@ -1047,6 +1071,17 @@ const contentTypes = {
     excluded_lot_id: excludedLotId,
     excluded_card_marked: excludedCardMarked,
     submitted_materials: submitted && submitted.material_settings
+  };
+  result.ok = result.ok && previewToolbarLayout.planWidth <= 270 && previewToolbarLayout.aligned &&
+    materialFiltersWork && materialToolbarLayout.planWidth <= 270 && materialToolbarLayout.aligned && promotionColorRolesWork &&
+    liveMaterialPreview.promotionFrameColor === '#123ABC' && liveMaterialPreview.promotionTextColor === '#123ABC' &&
+    submitted.material_settings.promotion_frame_color === '#123ABC' && submitted.material_settings.promotion_text_color === '#123ABC';
+  result.preview_filters = { works: previewFiltersWork, layout: previewToolbarLayout };
+  result.material_filters = { works: materialFiltersWork, layout: materialToolbarLayout };
+  result.promotion_colors = {
+    roles: promotionColorRolesWork,
+    frame: liveMaterialPreview.promotionFrameColor,
+    text: liveMaterialPreview.promotionTextColor
   };
   console.log(JSON.stringify(result, null, 2));
   await browser.close();

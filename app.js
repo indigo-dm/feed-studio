@@ -18,8 +18,8 @@
     publishedImageSettings: { lot_overrides: {}, bulk_rules: [] },
     parameterSettings: { lot_values: {}, bulk_rules: [] },
     publishedParameterSettings: { lot_values: {}, bulk_rules: [] },
-    materialSettings: { logo: '', key_render: '', background_render: '', primary_color: '', background_color: '', text_color: '', subtitle_color: '', palette: [] },
-    publishedMaterialSettings: { logo: '', key_render: '', background_render: '', primary_color: '', background_color: '', text_color: '', subtitle_color: '', palette: [] },
+    materialSettings: { logo: '', key_render: '', background_render: '', primary_color: '', background_color: '', text_color: '', subtitle_color: '', promotion_frame_color: '', promotion_text_color: '', palette: [] },
+    publishedMaterialSettings: { logo: '', key_render: '', background_render: '', primary_color: '', background_color: '', text_color: '', subtitle_color: '', promotion_frame_color: '', promotion_text_color: '', palette: [] },
     cardSettings: { show_key_render: true, show_house_badge: true, show_decoration: true, show_logo_panel: false },
     publishedCardSettings: { show_key_render: true, show_house_badge: true, show_decoration: true, show_logo_panel: false },
     excludedLotIds: [],
@@ -31,6 +31,7 @@
     imageFilters: { house: '', rooms: '', floor: '', plan: '', search: '', apartment_numbers: [], selection_ids: [] },
     parameterFilters: { house: '', rooms: '', floor: '', plan: '', search: '', apartment_numbers: [], selection_ids: [] },
     previewFilters: { house: '', rooms: '', floor: '', plan: '', search: '', apartment_numbers: [], selection_ids: [] },
+    materialFilters: { house: '', rooms: '', floor: '', plan: '', search: '', apartment_numbers: [], selection_ids: [] },
     chessboardContext: '',
     chessboardDraftIds: [],
     chessboardSearch: '',
@@ -212,7 +213,7 @@
   var emptyLotFilters = function () { return { house: '', rooms: '', floor: '', search: '', apartment_numbers: [], selection_ids: [] }; };
   var emptyMediaFilters = function () { return { house: '', rooms: '', floor: '', plan: '', search: '', apartment_numbers: [], selection_ids: [] }; };
   var emptyMaterialSettings = function () {
-    return { logo: '', key_render: '', background_render: '', primary_color: '', background_color: '', text_color: '', subtitle_color: '', palette: [] };
+    return { logo: '', key_render: '', background_render: '', primary_color: '', background_color: '', text_color: '', subtitle_color: '', promotion_frame_color: '', promotion_text_color: '', palette: [] };
   };
   var emptyCardSettings = function () { return { show_key_render: true, show_house_badge: true, show_decoration: true }; };
 
@@ -359,6 +360,7 @@
     if (context === 'images') return state.imageFilters;
     if (context === 'parameters') return state.parameterFilters;
     if (context === 'preview') return state.previewFilters;
+    if (context === 'assets') return state.materialFilters;
     return null;
   }
 
@@ -580,11 +582,15 @@
     var background = normalizeHexColor(source.background_color) || normalizeHexColor(brand.background_color) || primary;
     var textColor = normalizeHexColor(source.text_color) || normalizeHexColor(brand.text_color) || normalizeHexColor(brand.white) || '#FFFFFF';
     var subtitle = normalizeHexColor(source.subtitle_color) || normalizeHexColor(brand.subtitle_color) || normalizeHexColor(brand.gray) || textColor;
+    var promotionFrame = normalizeHexColor(source.promotion_frame_color) || normalizeHexColor(brand.promotion_frame_color) || primary;
+    var promotionText = normalizeHexColor(source.promotion_text_color) || normalizeHexColor(brand.promotion_text_color) || textColor;
     [
       { name: 'Основной', value: primary },
       { name: 'Фон', value: background },
       { name: 'Текст', value: textColor },
-      { name: 'Подзаголовки', value: subtitle }
+      { name: 'Подзаголовки', value: subtitle },
+      { name: 'Рамка акции', value: promotionFrame },
+      { name: 'Текст акции', value: promotionText }
     ].reverse().forEach(function (role) {
       if (!seen.has(role.value)) {
         palette.unshift(role);
@@ -599,6 +605,8 @@
       background_color: background,
       text_color: textColor,
       subtitle_color: subtitle,
+      promotion_frame_color: promotionFrame,
+      promotion_text_color: promotionText,
       palette: palette
     };
   }
@@ -872,6 +880,8 @@
       if (state.materialSettings.background_color !== state.publishedMaterialSettings.background_color) materialParts.push('цвет фона');
       if (state.materialSettings.text_color !== state.publishedMaterialSettings.text_color) materialParts.push('цвет текста');
       if (state.materialSettings.subtitle_color !== state.publishedMaterialSettings.subtitle_color) materialParts.push('цвет подзаголовков');
+      if (state.materialSettings.promotion_frame_color !== state.publishedMaterialSettings.promotion_frame_color) materialParts.push('цвет рамки акции');
+      if (state.materialSettings.promotion_text_color !== state.publishedMaterialSettings.promotion_text_color) materialParts.push('цвет текста акции');
       if (!sameValue(state.materialSettings.palette, state.publishedMaterialSettings.palette)) materialParts.push('палитра');
       add('materials', 'project', 'Материалы', 'Фирменные материалы проекта', 'Изменено: ' + materialParts.join(', ') + '.');
     }
@@ -1106,7 +1116,8 @@
     if (materials.logo) materialFacts.push(['Логотип', materials.logo]);
     if (materials.key_render) materialFacts.push(['Рендер в макете', materials.key_render]);
     materialFacts.push(['Фоновое изображение', materials.background_render || 'Не используется']);
-    [['primary_color', 'Основной цвет'], ['background_color', 'Цвет фона'], ['text_color', 'Цвет текста'], ['subtitle_color', 'Цвет подзаголовков']].forEach(function (entry) {
+    [['primary_color', 'Основной цвет'], ['background_color', 'Цвет фона'], ['text_color', 'Цвет текста'], ['subtitle_color', 'Цвет подзаголовков'],
+      ['promotion_frame_color', 'Рамка акции'], ['promotion_text_color', 'Текст акции']].forEach(function (entry) {
       if (materials[entry[0]]) materialFacts.push([entry[1], materials[entry[0]]]);
     });
     if ((materials.palette || []).length) materialFacts.push(['Палитра', materials.palette.map(function (color) { return color.name + ' ' + color.value; }).join('; ')]);
@@ -1474,7 +1485,9 @@
       { key: 'primary_color', label: 'Основной', action: 'Сделать основным' },
       { key: 'background_color', label: 'Фон', action: 'Сделать фоном' },
       { key: 'text_color', label: 'Текст', action: 'Назначить тексту' },
-      { key: 'subtitle_color', label: 'Подзаголовки', action: 'Назначить подзаголовкам' }
+      { key: 'subtitle_color', label: 'Подзаголовки', action: 'Назначить подзаголовкам' },
+      { key: 'promotion_frame_color', label: 'Рамка акции', action: 'Назначить рамке акции' },
+      { key: 'promotion_text_color', label: 'Текст акции', action: 'Назначить тексту акции' }
     ];
     $('#color-role-summary').innerHTML = colorRoles.map(function (role) {
       var value = normalizeHexColor(state.materialSettings[role.key]) || '#000000';
@@ -1719,17 +1732,21 @@
     $('#image-filter-house').innerHTML = houseOptions;
     $('#parameter-filter-house').innerHTML = houseOptions;
     $('#preview-filter-house').innerHTML = houseOptions;
+    $('#material-filter-house').innerHTML = houseOptions;
     $('#filter-rooms').innerHTML = roomOptions;
     $('#image-filter-rooms').innerHTML = roomOptions;
     $('#parameter-filter-rooms').innerHTML = roomOptions;
     $('#preview-filter-rooms').innerHTML = roomOptions;
+    $('#material-filter-rooms').innerHTML = roomOptions;
     $('#filter-floor').innerHTML = floorOptions;
     $('#image-filter-floor').innerHTML = floorOptions;
     $('#parameter-filter-floor').innerHTML = floorOptions;
     $('#preview-filter-floor').innerHTML = floorOptions;
+    $('#material-filter-floor').innerHTML = floorOptions;
     $('#image-filter-plan').innerHTML = planOptions;
     $('#parameter-filter-plan').innerHTML = planOptions;
     $('#preview-filter-plan').innerHTML = planOptions;
+    $('#material-filter-plan').innerHTML = planOptions;
     var lotOptions = state.inventory.items.map(function (item) {
       return '<option value="' + esc(item.id) + '">' + esc(item.house + ' · ' + roomShortLabel(effectiveRoomsForItem(item)) + ' · ' + formatArea(item.area)) + '</option>';
     }).join('');
@@ -2721,6 +2738,10 @@
 
   function filteredPreviewItems() {
     return state.inventory.items.filter(function (item) { return itemMatchesFilters(item, state.previewFilters); });
+  }
+
+  function filteredMaterialItems() {
+    return state.inventory.items.filter(function (item) { return itemMatchesFilters(item, state.materialFilters); });
   }
 
   function apartmentCountLabel(count) {
@@ -3818,6 +3839,8 @@
     var rule = appliedRule(item);
     var promo = $('#live-promo');
     promo.classList.toggle('hidden', !rule);
+    promo.style.backgroundColor = normalizeHexColor(state.materialSettings.promotion_frame_color) || normalizeHexColor(state.materialSettings.primary_color) || '#00605C';
+    promo.style.color = normalizeHexColor(state.materialSettings.promotion_text_color) || normalizeHexColor(state.materialSettings.text_color) || '#FFFFFF';
     if (state.excludedLotIds.indexOf(String(item.id)) >= 0) {
       $('#applied-rule').innerHTML = '<span>Статус лота</span><strong>Исключён из результирующего XML</strong>';
     } else if (rule) {
@@ -3843,6 +3866,8 @@
       background_color: normalizeHexColor(source.background_color),
       text_color: normalizeHexColor(source.text_color),
       subtitle_color: normalizeHexColor(source.subtitle_color),
+      promotion_frame_color: normalizeHexColor(source.promotion_frame_color),
+      promotion_text_color: normalizeHexColor(source.promotion_text_color),
       show_key_render: cardSource.show_key_render,
       show_house_badge: cardSource.show_house_badge,
       show_decoration: cardSource.show_decoration,
@@ -3926,6 +3951,8 @@
     var background = normalizeHexColor(state.materialSettings.background_color) || primary;
     var textColor = normalizeHexColor(state.materialSettings.text_color) || '#FFFFFF';
     var subtitleColor = normalizeHexColor(state.materialSettings.subtitle_color) || '#D7D7D7';
+    var promotionFrameColor = normalizeHexColor(state.materialSettings.promotion_frame_color) || primary;
+    var promotionTextColor = normalizeHexColor(state.materialSettings.promotion_text_color) || textColor;
     var dark = darkerColor(background, 0.72);
     var gradient = context.createLinearGradient(0, 0, 1200, 900);
     gradient.addColorStop(0, background);
@@ -3959,6 +3986,23 @@
       context.fillStyle = 'rgba(255,255,255,.08)';
       context.fillRect(56, 180, 145, 42);
       canvasText(context, String(item.house || '').toUpperCase(), 74, 208, '700 19px Manrope, Arial', textColor);
+    }
+    var promotion = appliedRule(item);
+    if (promotion && canvas.id === 'material-live-card') {
+      var promotionLabel = String(promotion.label || 'Акция').toUpperCase();
+      var promotionText = String(promotion.text || '');
+      context.font = '700 14px Manrope, Arial';
+      var promotionLabelWidth = context.measureText(promotionLabel).width;
+      context.font = '800 18px Manrope, Arial';
+      var promotionTextWidth = context.measureText(promotionText).width;
+      var promotionWidth = Math.min(405, Math.max(150, promotionLabelWidth + promotionTextWidth + 50));
+      var promotionX = 526 - promotionWidth;
+      context.fillStyle = promotionFrameColor;
+      context.beginPath();
+      context.roundRect(promotionX, 180, promotionWidth, 42, 21);
+      context.fill();
+      canvasText(context, promotionLabel, promotionX + 17, 207, '700 14px Manrope, Arial', promotionTextColor);
+      canvasText(context, promotionText, promotionX + 29 + promotionLabelWidth, 208, '800 18px Manrope, Arial', promotionTextColor);
     }
     var parameterValues = effectiveParameters(item);
     var effectiveRooms = parameterValues.Rooms != null ? parameterValues.Rooms : item.rooms;
@@ -3997,11 +4041,15 @@
     var canvas = $('#material-live-card');
     var empty = $('#material-preview-empty');
     if (!select || !canvas || !empty) return;
-    var items = state.inventory && state.inventory.items || [];
+    renderToolbarApartmentFilter('material-apartment-filter', state.materialFilters, renderAssets);
+    updateChessboardButton('assets');
+    var items = state.inventory ? filteredMaterialItems() : [];
+    $('#material-filter-count').textContent = items.length;
     if (!items.length) {
-      select.innerHTML = '<option value="">Квартиры появятся после загрузки фида</option>';
+      select.innerHTML = '<option value="">По выбранным фильтрам квартир нет</option>';
       select.disabled = true;
       canvas.classList.add('hidden');
+      empty.textContent = state.inventory && state.inventory.items.length ? 'Измените фильтры, чтобы выбрать квартиру.' : 'Предпросмотр появится после загрузки квартир объекта.';
       empty.classList.remove('hidden');
       return;
     }
@@ -4021,6 +4069,8 @@
     canvas.dataset.backgroundColor = normalizeHexColor(state.materialSettings.background_color);
     canvas.dataset.textColor = normalizeHexColor(state.materialSettings.text_color);
     canvas.dataset.subtitleColor = normalizeHexColor(state.materialSettings.subtitle_color);
+    canvas.dataset.promotionFrameColor = normalizeHexColor(state.materialSettings.promotion_frame_color);
+    canvas.dataset.promotionTextColor = normalizeHexColor(state.materialSettings.promotion_text_color);
     canvas.dataset.showRender = String(state.cardSettings.show_key_render);
     canvas.dataset.logoPanel = String(state.cardSettings.show_logo_panel);
     drawMaterialPreview(canvas, selected, workspaceMaterialPreviewToken);
@@ -4049,6 +4099,8 @@
     canvas.dataset.backgroundColor = normalizeHexColor(state.materialSettings.background_color);
     canvas.dataset.textColor = normalizeHexColor(state.materialSettings.text_color);
     canvas.dataset.subtitleColor = normalizeHexColor(state.materialSettings.subtitle_color);
+    canvas.dataset.promotionFrameColor = normalizeHexColor(state.materialSettings.promotion_frame_color);
+    canvas.dataset.promotionTextColor = normalizeHexColor(state.materialSettings.promotion_text_color);
     canvas.dataset.showRender = String(state.cardSettings.show_key_render);
     canvas.dataset.logoPanel = String(state.cardSettings.show_logo_panel);
     canvas.dataset.houseBadge = String(state.cardSettings.show_house_badge);
@@ -4173,7 +4225,9 @@
       ['primary_color', 'основной цвет'],
       ['background_color', 'цвет фона'],
       ['text_color', 'цвет текста'],
-      ['subtitle_color', 'цвет подзаголовков']
+      ['subtitle_color', 'цвет подзаголовков'],
+      ['promotion_frame_color', 'цвет рамки акции'],
+      ['promotion_text_color', 'цвет текста акции']
     ];
     var roleColors = colorRoles.map(function (role) { return normalizeHexColor(state.materialSettings[role[0]]); });
     var invalidRoleIndex = roleColors.findIndex(function (color) { return !color; });
@@ -4246,7 +4300,7 @@
       Object.keys(state.parameterSettings.lot_values).length + ' квартир с дополнительными параметрами и ' + state.parameterSettings.bulk_rules.length + ' массовых правил параметров.<br>' +
       '<strong>' + state.excludedLotIds.length + ' лотов исключено из результирующего XML.</strong><br>' +
       'Логотип: <strong>' + esc(state.materialSettings.logo) + '</strong><br>Рендер в макете: <strong>' + esc(state.materialSettings.key_render) + '</strong>; фон: <strong>' + esc(state.materialSettings.background_render || 'без изображения') + '</strong>.<br>' +
-      'Цвета — основной: <strong>' + esc(state.materialSettings.primary_color) + '</strong>, фон: <strong>' + esc(state.materialSettings.background_color) + '</strong>, текст: <strong>' + esc(state.materialSettings.text_color) + '</strong>, подзаголовки: <strong>' + esc(state.materialSettings.subtitle_color) + '</strong>.<br>' +
+      'Цвета — основной: <strong>' + esc(state.materialSettings.primary_color) + '</strong>, фон: <strong>' + esc(state.materialSettings.background_color) + '</strong>, текст: <strong>' + esc(state.materialSettings.text_color) + '</strong>, подзаголовки: <strong>' + esc(state.materialSettings.subtitle_color) + '</strong>, рамка акции: <strong>' + esc(state.materialSettings.promotion_frame_color) + '</strong>, текст акции: <strong>' + esc(state.materialSettings.promotion_text_color) + '</strong>.<br>' +
       'Рендер в макете: <strong>' + (state.cardSettings.show_key_render ? 'показывается' : 'скрыт') + '</strong>; плашка дома: <strong>' + (state.cardSettings.show_house_badge ? 'показывается' : 'скрыта') + '</strong>; тип отделки: <strong>' + (state.cardSettings.show_decoration ? 'показывается' : 'скрыт') + '</strong>; подложка логотипа: <strong>' + (state.cardSettings.show_logo_panel ? 'включена' : 'выключена') + '</strong>.' +
       (state.pendingUploadDeletions.length ? '<br><strong>' + state.pendingUploadDeletions.length + ' загруженных файлов будут физически удалены после публикации.</strong>' : '');
     $('#publish-modal').classList.remove('hidden');
@@ -4396,6 +4450,11 @@
     $('#preview-filter-floor').addEventListener('change', function (event) { state.previewFilters.floor = event.target.value; renderPreview(); });
     $('#preview-filter-plan').addEventListener('change', function (event) { state.previewFilters.plan = event.target.value; renderPreview(); });
     $('#preview-filter-search').addEventListener('input', function (event) { state.previewFilters.search = event.target.value; renderPreview(); });
+    $('#material-filter-house').addEventListener('change', function (event) { state.materialFilters.house = event.target.value; renderAssets(); });
+    $('#material-filter-rooms').addEventListener('change', function (event) { state.materialFilters.rooms = event.target.value; renderAssets(); });
+    $('#material-filter-floor').addEventListener('change', function (event) { state.materialFilters.floor = event.target.value; renderAssets(); });
+    $('#material-filter-plan').addEventListener('change', function (event) { state.materialFilters.plan = event.target.value; renderAssets(); });
+    $('#material-filter-search').addEventListener('input', function (event) { state.materialFilters.search = event.target.value; renderAssets(); });
     $('#image-lot').addEventListener('change', function (event) { state.imageLotId = event.target.value; renderImages(); });
     $('#refresh-image-library').addEventListener('click', function () { loadImageLibrary(state.project && state.project.slug, true); });
     $('#library-image-mode').addEventListener('change', function (event) {
@@ -4761,6 +4820,7 @@
       state.imageFilters = emptyMediaFilters();
       state.parameterFilters = emptyMediaFilters();
       state.previewFilters = emptyMediaFilters();
+      state.materialFilters = emptyMediaFilters();
       populateFilters();
       renderAll();
       navigate(state.activeView);
@@ -4846,6 +4906,7 @@
       state.imageFilters = emptyMediaFilters();
       state.parameterFilters = emptyMediaFilters();
       state.previewFilters = emptyMediaFilters();
+      state.materialFilters = emptyMediaFilters();
       populateFilters();
       renderAll();
       navigate('assets');
