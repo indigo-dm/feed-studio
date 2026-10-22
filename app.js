@@ -30,6 +30,7 @@
     filters: { house: '', rooms: '', floor: '', search: '', apartment_numbers: [], selection_ids: [] },
     imageFilters: { house: '', rooms: '', floor: '', plan: '', search: '', apartment_numbers: [], selection_ids: [] },
     parameterFilters: { house: '', rooms: '', floor: '', plan: '', search: '', apartment_numbers: [], selection_ids: [] },
+    previewFilters: { house: '', rooms: '', floor: '', plan: '', search: '', apartment_numbers: [], selection_ids: [] },
     chessboardContext: '',
     chessboardDraftIds: [],
     chessboardSearch: '',
@@ -39,18 +40,17 @@
     materialPreviewId: null,
     imageLotId: null,
     parameterLotId: null,
-    imageUploadBusy: false,
-    imageUploadMessage: '',
-    imageUploadTone: '',
-    bulkImageFiles: [],
-    bulkImageUploadBusy: false,
-    bulkImageUploadMessage: '',
-    bulkImageUploadTone: '',
+    libraryUploadFiles: [],
+    libraryUploadBusy: false,
+    libraryUploadMessage: '',
+    libraryUploadTone: '',
     imageLibrary: [],
     imageLibrarySelected: [],
     imageLibraryBusy: false,
+    imageLibraryDeleteBusy: '',
     imageLibraryMessage: '',
     imageLibraryTone: '',
+    bulkImageHideSelected: [],
     materialUploadBusy: false,
     materialDeleteBusy: '',
     materialUploadMessage: '',
@@ -358,6 +358,7 @@
     if (context === 'lots') return state.filters;
     if (context === 'images') return state.imageFilters;
     if (context === 'parameters') return state.parameterFilters;
+    if (context === 'preview') return state.previewFilters;
     return null;
   }
 
@@ -495,6 +496,7 @@
       if (state.chessboardContext === 'lots') renderLots();
       if (state.chessboardContext === 'images') renderImages();
       if (state.chessboardContext === 'parameters') renderParameters();
+      if (state.chessboardContext === 'preview') renderPreview();
     } else if (state.chessboardContext === 'promotions') {
       var rule = state.rules.find(function (item) { return item.id === state.activeRuleId; });
       if (rule) {
@@ -1716,14 +1718,18 @@
     $('#filter-house').innerHTML = houseOptions;
     $('#image-filter-house').innerHTML = houseOptions;
     $('#parameter-filter-house').innerHTML = houseOptions;
+    $('#preview-filter-house').innerHTML = houseOptions;
     $('#filter-rooms').innerHTML = roomOptions;
     $('#image-filter-rooms').innerHTML = roomOptions;
     $('#parameter-filter-rooms').innerHTML = roomOptions;
+    $('#preview-filter-rooms').innerHTML = roomOptions;
     $('#filter-floor').innerHTML = floorOptions;
     $('#image-filter-floor').innerHTML = floorOptions;
     $('#parameter-filter-floor').innerHTML = floorOptions;
+    $('#preview-filter-floor').innerHTML = floorOptions;
     $('#image-filter-plan').innerHTML = planOptions;
     $('#parameter-filter-plan').innerHTML = planOptions;
+    $('#preview-filter-plan').innerHTML = planOptions;
     var lotOptions = state.inventory.items.map(function (item) {
       return '<option value="' + esc(item.id) + '">' + esc(item.house + ' · ' + roomShortLabel(effectiveRoomsForItem(item)) + ' · ' + formatArea(item.area)) + '</option>';
     }).join('');
@@ -2047,6 +2053,75 @@
     renderImageLibrary();
   }
 
+  function openImageLightbox(url, caption) {
+    var modal = $('#image-lightbox');
+    var image = $('#image-lightbox-image');
+    if (!modal || !image || !url) return;
+    image.src = url;
+    image.alt = caption || 'Увеличенное изображение';
+    $('#image-lightbox-caption').textContent = caption || '';
+    modal.classList.remove('hidden');
+    document.body.classList.add('image-lightbox-open');
+    $('#close-image-lightbox').focus();
+  }
+
+  function closeImageLightbox() {
+    var modal = $('#image-lightbox');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    document.body.classList.remove('image-lightbox-open');
+    $('#image-lightbox-image').removeAttribute('src');
+  }
+
+  function imageLibraryUsage(imageId) {
+    var id = String(imageId || '');
+    var result = { draftLots: 0, draftRules: 0, publishedLots: 0, publishedRules: 0 };
+    function inspect(settings, lotKey, ruleKey) {
+      Object.keys(settings && settings.lot_overrides || {}).forEach(function (lotId) {
+        if ((settings.lot_overrides[lotId].added || []).some(function (image) { return String(image.id) === id; })) result[lotKey] += 1;
+      });
+      (settings && settings.bulk_rules || []).forEach(function (rule) {
+        if (rule.action === 'add' && (rule.images || []).some(function (image) { return String(image.id) === id; })) result[ruleKey] += 1;
+      });
+    }
+    inspect(state.imageSettings, 'draftLots', 'draftRules');
+    inspect(state.publishedImageSettings, 'publishedLots', 'publishedRules');
+    return result;
+  }
+
+  async function deleteImageLibraryItem(imageId) {
+    var item = projectImageLibraryItems().find(function (image) { return String(image.id) === String(imageId); });
+    if (!item || item.source !== 'library' || state.imageLibraryDeleteBusy) return;
+    var usage = imageLibraryUsage(item.id);
+    var usageCount = usage.draftLots + usage.draftRules + usage.publishedLots + usage.publishedRules;
+    if (usageCount) {
+      setImageLibraryMessage('Нельзя удалить «' + item.name + '»: изображение используется в лотах или массовых правилах. Сначала уберите назначения и примените изменения.', 'error');
+      return;
+    }
+    if (!window.confirm('Удалить «' + item.name + '» из библиотеки без возможности восстановления?')) return;
+    var credential = window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.get ? window.FEED_STUDIO_CREDENTIAL.get() : '';
+    if (!credential) { showToast('Выйдите и войдите в Feed Studio повторно.'); return; }
+    state.imageLibraryDeleteBusy = String(item.id);
+    setImageLibraryMessage('Удаляем изображение из библиотеки…', '');
+    try {
+      var response = await fetch(serviceEndpoint('/image-library'), {
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer ' + credential, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project: state.project.slug, image_id: item.id })
+      });
+      var payload = await response.json().catch(function () { return {}; });
+      if (!response.ok) throw new Error(payload.error || 'Не удалось удалить изображение из библиотеки.');
+      state.imageLibrary = state.imageLibrary.filter(function (image) { return String(image.id) !== String(item.id); });
+      state.imageLibrarySelected = state.imageLibrarySelected.filter(function (id) { return String(id) !== String(item.id); });
+      setImageLibraryMessage('Изображение удалено из библиотеки.', 'success');
+    } catch (error) {
+      setImageLibraryMessage(error.message || 'Не удалось удалить изображение из библиотеки.', 'error');
+    } finally {
+      state.imageLibraryDeleteBusy = '';
+      renderImageLibrary();
+    }
+  }
+
   async function loadImageLibrary(expectedSlug, announce) {
     var slug = String(expectedSlug || (state.project && state.project.slug) || '');
     if (!slug || !state.project || state.project.slug !== slug || !uploadServiceUrl()) return;
@@ -2077,8 +2152,8 @@
   }
 
   function selectedImageLibraryItems() {
-    var selected = new Set((state.imageLibrarySelected || []).map(String));
-    return projectImageLibraryItems().filter(function (item) { return selected.has(String(item.id)); });
+    var items = new Map(projectImageLibraryItems().map(function (item) { return [String(item.id), item]; }));
+    return (state.imageLibrarySelected || []).map(String).map(function (id) { return items.get(id); }).filter(Boolean);
   }
 
   function renderImageLibrary() {
@@ -2090,9 +2165,15 @@
     panel.classList.toggle('loading', state.imageLibraryBusy);
     root.innerHTML = items.length ? items.map(function (item) {
       var checked = selected.has(String(item.id));
-      return '<label class="image-library-card ' + (checked ? 'selected' : '') + '"><input type="checkbox" data-library-image="' + esc(item.id) + '" ' +
-        (checked ? 'checked' : '') + '><img src="' + esc(item.url) + '" alt="' + esc(item.name || 'Изображение') + '" loading="lazy" decoding="async"><small>' +
-        esc(item.source === 'materials' ? 'Материалы' : 'Библиотека') + '</small><span title="' + esc(item.name || '') + '">' + esc(item.name || 'Изображение') + '</span></label>';
+      var order = checked ? state.imageLibrarySelected.indexOf(String(item.id)) + 1 : '';
+      var deleting = state.imageLibraryDeleteBusy === String(item.id);
+      var deleteButton = item.source === 'library' ? '<button class="image-library-delete" type="button" data-delete-library-image="' + esc(item.id) + '" ' +
+        (deleting ? 'disabled' : '') + ' title="Удалить из библиотеки">' + (deleting ? '…' : '×') + '</button>' : '';
+      return '<article class="image-library-card ' + (checked ? 'selected' : '') + '"><label class="image-library-select" title="Добавить в выбор"><input type="checkbox" data-library-image="' + esc(item.id) + '" ' +
+        (checked ? 'checked' : '') + '><b>' + esc(order) + '</b></label><button class="image-library-preview" type="button" data-lightbox-src="' + esc(item.url) + '" data-lightbox-caption="' + esc(item.name || 'Изображение') + '">' +
+        '<img src="' + esc(item.url) + '" alt="' + esc(item.name || 'Изображение') + '" loading="lazy" decoding="async"><small class="image-library-card-source">' +
+        esc(item.source === 'materials' ? 'Материалы' : 'Библиотека') + '</small></button><div class="image-library-card-meta"><span title="' + esc(item.name || '') + '">' +
+        esc(item.name || 'Изображение') + '</span>' + deleteButton + '</div></article>';
     }).join('') : '<div class="image-library-empty">В библиотеке пока нет изображений. Загрузите первый файл ниже.</div>';
     $$('[data-library-image]', root).forEach(function (input) {
       input.addEventListener('change', function () {
@@ -2102,10 +2183,14 @@
         renderImageLibrary();
       });
     });
+    $$('[data-delete-library-image]', root).forEach(function (button) {
+      button.addEventListener('click', function () { deleteImageLibraryItem(button.dataset.deleteLibraryImage); });
+    });
     var count = selectedImageLibraryItems().length;
     $('#add-library-to-lot').disabled = !count || !state.imageLotId || state.imageLibraryBusy;
     $('#add-library-to-selection').disabled = !count || !filteredImageItems().length || state.imageLibraryBusy;
     $('#refresh-image-library').disabled = state.imageLibraryBusy;
+    $('#image-library-summary').textContent = items.length + ' · выбрано ' + count;
     var status = $('#image-library-status');
     status.className = 'image-upload-status' + (state.imageLibraryTone ? ' ' + state.imageLibraryTone : '');
     status.textContent = state.imageLibraryMessage || (count ? 'Выбрано изображений: ' + count + '.' : 'Выберите одно или несколько изображений.');
@@ -2322,25 +2407,6 @@
     showToast('Файл будет удалён после применения изменений к фиду');
   }
 
-  function renderImageUploadState() {
-    var zone = $('#image-drop-zone');
-    var button = $('#choose-image-file');
-    var status = $('#image-upload-status');
-    if (!zone || !button || !status) return;
-    var available = Boolean(uploadServiceUrl() && state.imageLotId);
-    zone.classList.toggle('disabled', !available);
-    zone.classList.toggle('uploading', state.imageUploadBusy);
-    button.disabled = !available || state.imageUploadBusy;
-    status.className = 'image-upload-status' + (state.imageUploadTone ? ' ' + state.imageUploadTone : '');
-    status.textContent = state.imageUploadMessage || (available ? 'Изображение будет уменьшено до 2000 px и сохранено в защищённом хранилище.' : 'Загрузка файлов станет доступна после подключения защищённого хранилища.');
-  }
-
-  function setImageUploadMessage(message, tone) {
-    state.imageUploadMessage = message || '';
-    state.imageUploadTone = tone || '';
-    renderImageUploadState();
-  }
-
   function perceptualHashFromCanvas(sourceCanvas) {
     var hashCanvas = document.createElement('canvas');
     hashCanvas.width = 9;
@@ -2515,142 +2581,90 @@
     return submit(localConfirmed);
   }
 
-  async function uploadImageFile(file) {
-    var item = state.inventory.items.find(function (lot) { return lot.id === state.imageLotId; });
-    var endpoint = uploadServiceUrl();
-    if (!item || !endpoint || state.imageUploadBusy) return;
-    var credential = window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.get ? window.FEED_STUDIO_CREDENTIAL.get() : '';
-    if (!credential) {
-      showToast('Сессия входа завершена. Войдите в Feed Studio повторно.');
-      window.setTimeout(function () { window.location.reload(); }, 500);
-      return;
-    }
-    state.imageUploadBusy = true;
-    setImageUploadMessage('Оптимизируем и загружаем изображение…', '');
-    try {
-      var uploaded = await uploadImageToLibrary(file, credential);
-      var payload = uploaded.item;
-      if (!/^https:\/\//i.test(String(payload.url || '')) || !/^[A-Za-z0-9_-]+$/.test(String(payload.id || ''))) {
-        throw new Error('Сервис загрузки вернул некорректный ответ.');
-      }
-      addImageToItem(item, { id: String(payload.id), url: String(payload.url), path: String(payload.path || ''), name: String(payload.name || file.name || 'Изображение') });
-      if (!state.imageLibrary.some(function (entry) { return String(entry.id) === String(payload.id); })) state.imageLibrary.unshift(payload);
-      setImageUploadMessage(uploaded.reused ? 'Такое изображение уже было в библиотеке — использован существующий файл.' : 'Изображение загружено в библиотеку и добавлено в галерею.', 'success');
-      renderImages();
-    } catch (error) {
-      setImageUploadMessage(error.message || 'Не удалось загрузить изображение.', 'error');
-    } finally {
-      state.imageUploadBusy = false;
-      renderImageUploadState();
-    }
+  function setLibraryUploadMessage(message, tone) {
+    state.libraryUploadMessage = message || '';
+    state.libraryUploadTone = tone || '';
+    renderLibraryUploadState();
   }
 
-  function setBulkImageUploadMessage(message, tone) {
-    state.bulkImageUploadMessage = message || '';
-    state.bulkImageUploadTone = tone || '';
-    renderBulkImageUploadState();
+  function clearLibraryUploadFiles() {
+    state.libraryUploadFiles.forEach(function (entry) { if (entry.preview) URL.revokeObjectURL(entry.preview); });
+    state.libraryUploadFiles = [];
   }
 
-  function clearBulkImageFiles() {
-    state.bulkImageFiles.forEach(function (entry) { if (entry.preview) URL.revokeObjectURL(entry.preview); });
-    state.bulkImageFiles = [];
-  }
-
-  function selectBulkImageFiles(fileList) {
+  function selectLibraryUploadFiles(fileList) {
     var files = Array.from(fileList || []);
     var allowed = ['image/jpeg', 'image/png', 'image/webp'];
     if (!files.length) return;
-    if (files.length > 10) { showToast('За одну операцию можно выбрать не более 10 изображений.'); return; }
+    if (files.length > 20) { showToast('За одну операцию можно выбрать не более 20 изображений.'); return; }
     if (files.some(function (file) { return allowed.indexOf(file.type) < 0 || file.size < 1 || file.size > 20 * 1024 * 1024; })) {
       showToast('Допустимы JPG, PNG и WebP до 20 МБ каждый.'); return;
     }
-    clearBulkImageFiles();
-    state.bulkImageFiles = files.map(function (file) { return { file: file, preview: URL.createObjectURL(file) }; });
-    setBulkImageUploadMessage('Выбрано файлов: ' + files.length + '. При создании правила они будут оптимизированы.', '');
+    clearLibraryUploadFiles();
+    state.libraryUploadFiles = files.map(function (file) { return { file: file, preview: URL.createObjectURL(file) }; });
+    setLibraryUploadMessage('Выбрано файлов: ' + files.length + '. При загрузке они будут оптимизированы.', '');
   }
 
-  function renderBulkImageUploadState() {
-    var zone = $('#bulk-image-drop-zone');
-    var root = $('#bulk-image-selection');
-    var button = $('#apply-image-add-bulk');
-    var status = $('#bulk-image-upload-status');
+  function renderLibraryUploadState() {
+    var zone = $('#library-image-drop-zone');
+    var root = $('#library-image-upload-selection');
+    var button = $('#upload-library-images');
+    var status = $('#library-image-upload-status');
     if (!zone || !root || !button || !status) return;
     var available = Boolean(uploadServiceUrl());
     zone.classList.toggle('disabled', !available);
-    zone.classList.toggle('uploading', state.bulkImageUploadBusy);
-    root.innerHTML = state.bulkImageFiles.map(function (entry, index) {
-      return '<figure><img src="' + esc(entry.preview) + '" alt="' + esc(entry.file.name) + '"><button type="button" data-remove-bulk-image="' + index + '" aria-label="Убрать файл">×</button></figure>';
+    zone.classList.toggle('uploading', state.libraryUploadBusy);
+    root.innerHTML = state.libraryUploadFiles.map(function (entry, index) {
+      return '<figure><img src="' + esc(entry.preview) + '" alt="' + esc(entry.file.name) + '"><button type="button" data-remove-library-upload="' + index + '" aria-label="Убрать файл">×</button></figure>';
     }).join('');
-    $$('[data-remove-bulk-image]', root).forEach(function (removeButton) {
+    $$('[data-remove-library-upload]', root).forEach(function (removeButton) {
       removeButton.addEventListener('click', function () {
-        var index = Number(removeButton.dataset.removeBulkImage);
-        var entry = state.bulkImageFiles[index];
+        var index = Number(removeButton.dataset.removeLibraryUpload);
+        var entry = state.libraryUploadFiles[index];
         if (entry && entry.preview) URL.revokeObjectURL(entry.preview);
-        state.bulkImageFiles.splice(index, 1);
-        renderBulkImageUploadState();
+        state.libraryUploadFiles.splice(index, 1);
+        renderLibraryUploadState();
       });
     });
-    button.disabled = !available || state.bulkImageUploadBusy || !state.bulkImageFiles.length;
-    button.textContent = state.bulkImageUploadBusy ? 'Оптимизируем и загружаем…' : 'Загрузить и создать правило';
-    status.className = 'image-upload-status' + (state.bulkImageUploadTone ? ' ' + state.bulkImageUploadTone : '');
-    status.textContent = state.bulkImageUploadMessage || (available ? 'Каждый файл будет уменьшен до 2000 px и примерно 2,5 МБ.' : 'Массовая загрузка недоступна без защищённого хранилища.');
+    button.disabled = !available || state.libraryUploadBusy || !state.libraryUploadFiles.length;
+    button.textContent = state.libraryUploadBusy ? 'Оптимизируем и загружаем…' : 'Загрузить в библиотеку';
+    status.className = 'image-upload-status' + (state.libraryUploadTone ? ' ' + state.libraryUploadTone : '');
+    status.textContent = state.libraryUploadMessage || (available ? 'До 20 файлов. Каждый будет уменьшен до 2000 px и примерно 2,5 МБ.' : 'Загрузка недоступна без защищённого хранилища.');
   }
 
-  async function uploadBulkImageFile(file, credential) {
+  async function uploadLibraryImageFile(file, credential) {
     var result = await uploadImageToLibrary(file, credential);
     var payload = result.item;
     if (!/^https:\/\//i.test(String(payload.url || '')) || !/^(?:lib|asset)-[A-Za-z0-9_-]+$/.test(String(payload.id || ''))) {
       throw new Error('Сервис загрузки вернул некорректный ответ.');
     }
     if (!state.imageLibrary.some(function (entry) { return String(entry.id) === String(payload.id); })) state.imageLibrary.unshift(payload);
-    return { id: String(payload.id), url: String(payload.url), path: String(payload.path || ''), name: String(payload.name || file.name || 'Изображение').slice(0, 120) };
+    return String(payload.id);
   }
 
-  async function createBulkImageAddRule() {
-    var items = filteredImageItems();
-    if (!items.length) { showToast('По текущим фильтрам нет квартир.'); return; }
-    if (!state.bulkImageFiles.length || state.bulkImageUploadBusy) return;
-    if (items.some(function (item) { return effectiveImages(item).length + state.bulkImageFiles.length > 40; })) {
-      showToast('После добавления в одной из галерей будет больше 40 изображений. Уменьшите выбор файлов.'); return;
-    }
-    var mode = $('#bulk-image-mode').value;
-    var position = Number($('#bulk-image-position').value);
-    if (['start', 'end', 'position'].indexOf(mode) < 0 || (mode === 'position' && (!Number.isInteger(position) || position < 1 || position > 40))) {
-      showToast('Проверьте позицию добавления.'); return;
-    }
+  async function uploadLibraryImages() {
+    if (!state.libraryUploadFiles.length || state.libraryUploadBusy) return;
     var credential = window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.get ? window.FEED_STUDIO_CREDENTIAL.get() : '';
     if (!credential) { showToast('Сессия входа завершена. Войдите повторно.'); return; }
-    state.bulkImageUploadBusy = true;
-    setBulkImageUploadMessage('Оптимизируем и загружаем 0 из ' + state.bulkImageFiles.length + '…', '');
+    state.libraryUploadBusy = true;
+    setLibraryUploadMessage('Оптимизируем и загружаем 0 из ' + state.libraryUploadFiles.length + '…', '');
     try {
-      var uploaded = [];
-      for (var index = 0; index < state.bulkImageFiles.length; index += 1) {
-        uploaded.push(await uploadBulkImageFile(state.bulkImageFiles[index].file, credential));
-        setBulkImageUploadMessage('Оптимизировано и загружено ' + (index + 1) + ' из ' + state.bulkImageFiles.length + '…', '');
+      var uploadedIds = [];
+      var total = state.libraryUploadFiles.length;
+      for (var index = 0; index < total; index += 1) {
+        uploadedIds.push(await uploadLibraryImageFile(state.libraryUploadFiles[index].file, credential));
+        setLibraryUploadMessage('Оптимизировано и загружено ' + (index + 1) + ' из ' + total + '…', '');
       }
-      uploaded = uploaded.filter(function (image, imageIndex, all) {
-        return all.findIndex(function (candidate) { return String(candidate.id) === String(image.id); }) === imageIndex;
-      });
-      var modeLabel = mode === 'start' ? 'в начало' : mode === 'end' ? 'в конец' : 'с позиции ' + position;
-      state.imageSettings.bulk_rules.push(Object.assign({
-        id: 'image-add-rule-' + Date.now(),
-        name: 'Добавление ' + uploaded.length + ' изобр. ' + modeLabel,
-        enabled: true,
-        action: 'add',
-        images: uploaded,
-        position_mode: mode,
-        position: mode === 'position' ? position : null
-      }, filterRuleFrom(state.imageFilters, items)));
-      clearBulkImageFiles();
-      setDirty(true);
-      setBulkImageUploadMessage('Правило создано для ' + apartmentCountAfterForLabel(items.length) + '.', 'success');
-      renderImages();
+      state.imageLibrarySelected = uploadedIds.filter(function (id, imageIndex, all) { return all.indexOf(id) === imageIndex; });
+      clearLibraryUploadFiles();
+      setLibraryUploadMessage('Загружено в библиотеку: ' + state.imageLibrarySelected.length + '. Изображения выбраны в порядке загрузки.', 'success');
+      renderImageLibrary();
     } catch (error) {
       if (String(error.message || '').includes('Неверный пароль') && window.FEED_STUDIO_CREDENTIAL) window.FEED_STUDIO_CREDENTIAL.set('');
-      setBulkImageUploadMessage(error.message || 'Не удалось загрузить изображения.', 'error');
+      setLibraryUploadMessage(error.message || 'Не удалось загрузить изображения.', 'error');
     } finally {
-      state.bulkImageUploadBusy = false;
-      renderBulkImageUploadState();
+      state.libraryUploadBusy = false;
+      renderLibraryUploadState();
     }
   }
 
@@ -2681,6 +2695,9 @@
           var insertAt = rule.position_mode === 'start' ? 0 : rule.position_mode === 'end' ? images.length :
             Math.max(0, Math.min(images.length, Number(rule.position || 1) - 1));
           images.splice.apply(images, [insertAt, 0].concat(addedImages));
+        } else if (rule.action === 'hide') {
+          var hiddenByRule = new Set((rule.image_ids || []).map(String));
+          images = images.filter(function (image) { return !hiddenByRule.has(String(image.id)); });
         } else {
           images = moveArrayItem(images, rule.from_position, rule.to_position);
         }
@@ -2700,6 +2717,10 @@
 
   function filteredImageItems() {
     return state.inventory.items.filter(function (item) { return itemMatchesFilters(item, state.imageFilters); });
+  }
+
+  function filteredPreviewItems() {
+    return state.inventory.items.filter(function (item) { return itemMatchesFilters(item, state.previewFilters); });
   }
 
   function apartmentCountLabel(count) {
@@ -2786,11 +2807,14 @@
     $('#image-bulk-rules').innerHTML = state.imageSettings.bulk_rules.length ? state.imageSettings.bulk_rules.map(function (rule) {
       var matchingItems = state.inventory.items.filter(function (item) { return ruleMatchesSimple(item, rule); });
       var isAdd = rule.action === 'add';
+      var isHide = rule.action === 'hide';
       var positionText = rule.position_mode === 'start' ? 'в начало' : rule.position_mode === 'end' ? 'в конец' : 'с позиции ' + rule.position;
       var summary = (rule.enabled !== false && !matchingItems.length ? 'Не применяется · 0 квартир' : apartmentCountLabel(matchingItems.length)) +
-        (isAdd ? ' · ' + (rule.images || []).length + ' изобр. ' + positionText : ' · позиция ' + rule.from_position + ' → ' + rule.to_position);
+        (isAdd ? ' · ' + (rule.images || []).length + ' изобр. ' + positionText :
+          isHide ? ' · исключить ' + imageCountLabel((rule.image_ids || []).length) : ' · позиция ' + rule.from_position + ' → ' + rule.to_position);
       var action = isAdd ? 'Добавить ' + imageCountLabel((rule.images || []).length) + ' ' + positionText + ' итоговой галереи.' :
-        'Переместить изображение с позиции ' + rule.from_position + ' на позицию ' + rule.to_position + '.';
+        isHide ? 'Исключить изображения с ID: ' + compactList(rule.image_ids || [], 8) + '.' :
+          'Переместить изображение с позиции ' + rule.from_position + ' на позицию ' + rule.to_position + '.';
       return bulkRuleCard(rule, matchingItems, summary, action, 'data-delete-image-rule');
     }).join('') : '<p class="helper">Массовых правил пока нет.</p>';
     $$('[data-delete-image-rule]', $('#image-bulk-rules')).forEach(function (button) {
@@ -2834,6 +2858,49 @@
     });
   }
 
+  function renderBulkImageHidePicker(item, images) {
+    var root = $('#bulk-image-hide-picker');
+    var button = $('#apply-image-hide-bulk');
+    if (!root || !button) return;
+    var candidates = (images || []).filter(function (image) { return image.kind !== 'generated'; });
+    var availableIds = new Set(candidates.map(function (image) { return String(image.id); }));
+    state.bulkImageHideSelected = state.bulkImageHideSelected.filter(function (id) { return availableIds.has(String(id)); });
+    root.innerHTML = candidates.length ? candidates.map(function (image, index) {
+      var id = String(image.id);
+      var checked = state.bulkImageHideSelected.indexOf(id) >= 0;
+      return '<label class="bulk-image-hide-option ' + (checked ? 'selected' : '') + '"><input type="checkbox" data-bulk-hide-image="' + esc(id) + '" ' +
+        (checked ? 'checked' : '') + '><img src="' + esc(image.url) + '" alt="Изображение ' +
+        (index + 1) + '" loading="lazy" decoding="async"><span>' + esc(image.label) + '</span></label>';
+    }).join('') : '<p class="bulk-image-hide-empty">У текущего лота нет изображений, доступных для исключения.</p>';
+    $$('[data-bulk-hide-image]', root).forEach(function (input) {
+      input.addEventListener('change', function () {
+        var id = String(input.dataset.bulkHideImage);
+        if (input.checked && state.bulkImageHideSelected.indexOf(id) < 0) state.bulkImageHideSelected.push(id);
+        if (!input.checked) state.bulkImageHideSelected = state.bulkImageHideSelected.filter(function (value) { return value !== id; });
+        input.closest('.bulk-image-hide-option').classList.toggle('selected', input.checked);
+        button.disabled = !state.bulkImageHideSelected.length || !filteredImageItems().length;
+      });
+    });
+    button.disabled = !item || !state.bulkImageHideSelected.length || !filteredImageItems().length;
+  }
+
+  function createBulkImageHideRule() {
+    var items = filteredImageItems();
+    var imageIds = state.bulkImageHideSelected.map(String);
+    if (!items.length || !imageIds.length) return;
+    state.imageSettings.bulk_rules.push(Object.assign({
+      id: 'image-hide-rule-' + Date.now(),
+      name: 'Исключить ' + imageCountLabel(imageIds.length),
+      enabled: true,
+      action: 'hide',
+      image_ids: imageIds
+    }, filterRuleFrom(state.imageFilters, items)));
+    state.bulkImageHideSelected = [];
+    setDirty(true);
+    showToast('Создано правило исключения для ' + apartmentCountAfterForLabel(items.length) + '.');
+    renderImages();
+  }
+
   function renderImages() {
     if (!state.inventory) return;
     renderToolbarApartmentFilter('image-apartment-filter', state.imageFilters, renderImages);
@@ -2852,8 +2919,8 @@
       $('#removed-images-wrap').classList.add('hidden');
       renderImageBulkRules();
       renderImageIndividualRules();
-      renderImageUploadState();
-      renderBulkImageUploadState();
+      renderBulkImageHidePicker(null, []);
+      renderLibraryUploadState();
       return;
     }
     var images = effectiveImages(item);
@@ -2865,7 +2932,8 @@
         '. Можно перетащить мышью"><div class="image-item-preview"><img src="' + esc(imageUrl) + '" alt="Изображение ' +
         (index + 1) + '" loading="lazy" decoding="async"><span class="image-position">' + (index + 1) + '</span><span class="image-drag-handle">⋮⋮ Перетащить</span><span class="image-kind">' +
         esc(image.kind === 'generated' ? 'Feed Studio' : image.kind === 'source' ? 'Исходный фид' : 'Добавлено') +
-        '</span></div><div class="image-item-copy"><small title="' + esc(image.label) + '">' + esc(image.label) +
+        '</span><button class="image-preview-button" type="button" data-lightbox-src="' + esc(imageUrl) + '" data-lightbox-caption="' +
+        esc(image.label) + '">Увеличить</button></div><div class="image-item-copy"><small title="' + esc(image.label) + '">' + esc(image.label) +
         '</small><div class="image-actions"><button data-image-left="' + esc(image.id) + '" ' + (index === 0 ? 'disabled' : '') +
         '>← Выше</button><button data-image-right="' + esc(image.id) + '" ' + (index === images.length - 1 ? 'disabled' : '') +
         '>Ниже →</button><button class="remove-image" data-remove-image="' + esc(image.id) + '" ' +
@@ -2967,6 +3035,7 @@
       return all.findIndex(function (candidate) { return candidate.id === image.id; }) === index;
     })).filter(function (image) { return hiddenIds.indexOf(image.id) >= 0; });
     $('#removed-images-wrap').classList.toggle('hidden', hiddenImages.length === 0);
+    $('#removed-images-summary').textContent = hiddenImages.length ? imageCountLabel(hiddenImages.length) : '';
     $('#removed-images').innerHTML = hiddenImages.map(function (image) {
       var deleteUpload = managedUploadPath(item, image) ? '<button class="delete-upload" data-delete-hidden-upload="' + esc(image.id) +
         '">Удалить файл</button>' : '';
@@ -2989,8 +3058,8 @@
     });
     renderImageBulkRules();
     renderImageIndividualRules();
-    renderImageUploadState();
-    renderBulkImageUploadState();
+    renderBulkImageHidePicker(item, images);
+    renderLibraryUploadState();
   }
 
   function sanitizeDescriptionHtml(value) {
@@ -3367,7 +3436,9 @@
     var image = planThumbnailForItem(item);
     root.classList.remove('hidden');
     root.innerHTML = '<div class="parameter-lot-plan">' +
-      (image ? '<img src="' + esc(image) + '" alt="Планировка квартиры ' + esc(apartmentNumber || item.id) + '" loading="lazy" decoding="async">' : '<span>Нет планировки</span>') +
+      (image ? '<button class="parameter-lot-plan-button" type="button" data-lightbox-src="' + esc(image) + '" data-lightbox-caption="Планировка квартиры ' +
+        esc(apartmentNumber || item.id) + '"><img src="' + esc(image) + '" alt="Планировка квартиры ' + esc(apartmentNumber || item.id) +
+        '" loading="lazy" decoding="async"><span>Увеличить</span></button>' : '<span>Нет планировки</span>') +
       '</div><dl class="parameter-lot-details">' +
       '<div><dt>Этаж</dt><dd>' + esc(floorLabel) + '</dd></div>' +
       '<div><dt>Номер квартиры</dt><dd>' + esc(apartmentNumber || 'Не передан') + '</dd></div>' +
@@ -3716,8 +3787,25 @@
   }
 
   function renderPreview() {
-    if (!state.inventory || !state.inventory.items.length) return;
-    var item = state.inventory.items.find(function (lot) { return lot.id === state.previewId; }) || state.inventory.items[0];
+    if (!state.inventory) return;
+    renderToolbarApartmentFilter('preview-apartment-filter', state.previewFilters, renderPreview);
+    updateChessboardButton('preview');
+    var items = filteredPreviewItems();
+    $('#preview-filter-count').textContent = items.length;
+    if (!items.some(function (lot) { return String(lot.id) === String(state.previewId); })) state.previewId = items[0] ? items[0].id : null;
+    $('#preview-lot').innerHTML = items.map(function (lot) {
+      return '<option value="' + esc(lot.id) + '">' + esc(lot.house + ' · ' + roomShortLabel(effectiveRoomsForItem(lot)) + ' · ID ' + lot.id) + '</option>';
+    }).join('');
+    var item = items.find(function (lot) { return String(lot.id) === String(state.previewId); });
+    if (!item) {
+      $('#preview-title').textContent = 'Нет квартир';
+      $('#preview-details').innerHTML = '<div><dt>Фильтры</dt><dd>По выбранным условиям ничего не найдено</dd></div>';
+      $('#applied-rule').innerHTML = '<span>Предпросмотр</span><strong>Измените фильтры</strong>';
+      $('#live-promo').classList.add('hidden');
+      $('#preview-image').classList.add('hidden');
+      $('#preview-live-card').classList.add('hidden');
+      return;
+    }
     state.previewId = item.id;
     $('#preview-lot').value = item.id;
     renderMaterialPreview(item);
@@ -4069,9 +4157,12 @@
     for (var imageRuleIndex = 0; imageRuleIndex < state.imageSettings.bulk_rules.length; imageRuleIndex += 1) {
       var imageRule = state.imageSettings.bulk_rules[imageRuleIndex];
       if (imageRule.action === 'add') {
-        if (!Array.isArray(imageRule.images) || !imageRule.images.length || imageRule.images.length > 10) return 'В правиле добавления должно быть от 1 до 10 изображений.';
+        if (!Array.isArray(imageRule.images) || !imageRule.images.length || imageRule.images.length > 20) return 'В правиле добавления должно быть от 1 до 20 изображений.';
         if (['start', 'end', 'position'].indexOf(imageRule.position_mode) < 0) return 'В правиле добавления изображений некорректно указана позиция.';
         if (imageRule.position_mode === 'position' && (!Number.isInteger(Number(imageRule.position)) || Number(imageRule.position) < 1 || Number(imageRule.position) > 40)) return 'В правиле добавления изображений позиция должна быть от 1 до 40.';
+      } else if (imageRule.action === 'hide') {
+        if (!Array.isArray(imageRule.image_ids) || !imageRule.image_ids.length || imageRule.image_ids.length > 40) return 'В правиле исключения должно быть от 1 до 40 изображений.';
+        if (imageRule.image_ids.some(function (id) { return !/^[A-Za-z0-9_-]+$/.test(String(id)); })) return 'В правиле исключения есть некорректный ID изображения.';
       }
     }
     if (!state.materialSettings.logo || !state.materialSettings.key_render) return 'Выберите логотип и ключевой рендер.';
@@ -4300,6 +4391,11 @@
     $('#image-filter-floor').addEventListener('change', function (event) { state.imageFilters.floor = event.target.value; renderImages(); });
     $('#image-filter-plan').addEventListener('change', function (event) { state.imageFilters.plan = event.target.value; renderImages(); });
     $('#image-filter-search').addEventListener('input', function (event) { state.imageFilters.search = event.target.value; renderImages(); });
+    $('#preview-filter-house').addEventListener('change', function (event) { state.previewFilters.house = event.target.value; renderPreview(); });
+    $('#preview-filter-rooms').addEventListener('change', function (event) { state.previewFilters.rooms = event.target.value; renderPreview(); });
+    $('#preview-filter-floor').addEventListener('change', function (event) { state.previewFilters.floor = event.target.value; renderPreview(); });
+    $('#preview-filter-plan').addEventListener('change', function (event) { state.previewFilters.plan = event.target.value; renderPreview(); });
+    $('#preview-filter-search').addEventListener('input', function (event) { state.previewFilters.search = event.target.value; renderPreview(); });
     $('#image-lot').addEventListener('change', function (event) { state.imageLotId = event.target.value; renderImages(); });
     $('#refresh-image-library').addEventListener('click', function () { loadImageLibrary(state.project && state.project.slug, true); });
     $('#library-image-mode').addEventListener('change', function (event) {
@@ -4307,20 +4403,19 @@
     });
     $('#add-library-to-lot').addEventListener('click', addLibraryImagesToLot);
     $('#add-library-to-selection').addEventListener('click', addLibraryImagesToSelection);
-    $('#choose-image-file').addEventListener('click', function (event) {
+    $('#choose-library-image-files').addEventListener('click', function (event) {
       event.stopPropagation();
       if (!uploadServiceUrl()) return;
-      $('#image-file-input').click();
+      $('#library-image-file-input').click();
     });
-    $('#image-file-input').addEventListener('change', function (event) {
-      var file = event.target.files && event.target.files[0];
+    $('#library-image-file-input').addEventListener('change', function (event) {
+      selectLibraryUploadFiles(event.target.files);
       event.target.value = '';
-      if (file) uploadImageFile(file);
     });
-    var dropZone = $('#image-drop-zone');
-    dropZone.addEventListener('click', function () { if (uploadServiceUrl()) $('#image-file-input').click(); });
+    var dropZone = $('#library-image-drop-zone');
+    dropZone.addEventListener('click', function () { if (uploadServiceUrl()) $('#library-image-file-input').click(); });
     dropZone.addEventListener('keydown', function (event) {
-      if ((event.key === 'Enter' || event.key === ' ') && uploadServiceUrl()) { event.preventDefault(); $('#image-file-input').click(); }
+      if ((event.key === 'Enter' || event.key === ' ') && uploadServiceUrl()) { event.preventDefault(); $('#library-image-file-input').click(); }
     });
     ['dragenter', 'dragover'].forEach(function (eventName) {
       dropZone.addEventListener(eventName, function (event) { event.preventDefault(); if (uploadServiceUrl()) dropZone.classList.add('dragover'); });
@@ -4329,31 +4424,10 @@
       dropZone.addEventListener(eventName, function (event) { event.preventDefault(); dropZone.classList.remove('dragover'); });
     });
     dropZone.addEventListener('drop', function (event) {
-      var file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
-      if (file && uploadServiceUrl()) uploadImageFile(file);
+      if (uploadServiceUrl()) selectLibraryUploadFiles(event.dataTransfer && event.dataTransfer.files);
     });
-    var bulkDropZone = $('#bulk-image-drop-zone');
-    bulkDropZone.addEventListener('click', function () { if (uploadServiceUrl()) $('#bulk-image-file-input').click(); });
-    bulkDropZone.addEventListener('keydown', function (event) {
-      if ((event.key === 'Enter' || event.key === ' ') && uploadServiceUrl()) { event.preventDefault(); $('#bulk-image-file-input').click(); }
-    });
-    $('#bulk-image-file-input').addEventListener('change', function (event) {
-      selectBulkImageFiles(event.target.files);
-      event.target.value = '';
-    });
-    ['dragenter', 'dragover'].forEach(function (eventName) {
-      bulkDropZone.addEventListener(eventName, function (event) { event.preventDefault(); if (uploadServiceUrl()) bulkDropZone.classList.add('dragover'); });
-    });
-    ['dragleave', 'drop'].forEach(function (eventName) {
-      bulkDropZone.addEventListener(eventName, function (event) { event.preventDefault(); bulkDropZone.classList.remove('dragover'); });
-    });
-    bulkDropZone.addEventListener('drop', function (event) {
-      if (uploadServiceUrl()) selectBulkImageFiles(event.dataTransfer && event.dataTransfer.files);
-    });
-    $('#bulk-image-mode').addEventListener('change', function (event) {
-      $('#bulk-image-position').disabled = event.target.value !== 'position';
-    });
-    $('#apply-image-add-bulk').addEventListener('click', createBulkImageAddRule);
+    $('#upload-library-images').addEventListener('click', uploadLibraryImages);
+    $('#apply-image-hide-bulk').addEventListener('click', createBulkImageHideRule);
     $('#choose-material-file').addEventListener('click', function (event) {
       event.stopPropagation();
       if (uploadServiceUrl()) $('#material-file-input').click();
@@ -4448,9 +4522,20 @@
     $('#description-modal').addEventListener('click', function (event) {
       if (event.target.id === 'description-modal') closeExpandedDescriptionEditor();
     });
+    $('#close-image-lightbox').addEventListener('click', closeImageLightbox);
+    $('#image-lightbox').addEventListener('click', function (event) {
+      if (event.target.id === 'image-lightbox') closeImageLightbox();
+    });
+    document.addEventListener('click', function (event) {
+      var trigger = event.target.closest && event.target.closest('[data-lightbox-src]');
+      if (!trigger) return;
+      event.preventDefault();
+      openImageLightbox(trigger.dataset.lightboxSrc, trigger.dataset.lightboxCaption || 'Изображение');
+    });
     document.addEventListener('keydown', function (event) {
       if (event.key !== 'Escape') return;
-      if (!$('#chessboard-modal').classList.contains('hidden')) closeChessboard();
+      if (!$('#image-lightbox').classList.contains('hidden')) closeImageLightbox();
+      else if (!$('#chessboard-modal').classList.contains('hidden')) closeChessboard();
       else if (!$('#description-modal').classList.contains('hidden')) closeExpandedDescriptionEditor();
       else if (!$('#published-changes-modal').classList.contains('hidden')) $('#published-changes-modal').classList.add('hidden');
       else if (!$('#changes-modal').classList.contains('hidden')) $('#changes-modal').classList.add('hidden');
@@ -4654,18 +4739,17 @@
       state.materialPreviewId = null;
       state.imageLotId = null;
       state.parameterLotId = null;
-      state.imageUploadBusy = false;
-      state.imageUploadMessage = '';
-      state.imageUploadTone = '';
-      clearBulkImageFiles();
-      state.bulkImageUploadBusy = false;
-      state.bulkImageUploadMessage = '';
-      state.bulkImageUploadTone = '';
+      clearLibraryUploadFiles();
+      state.libraryUploadBusy = false;
+      state.libraryUploadMessage = '';
+      state.libraryUploadTone = '';
       state.imageLibrary = [];
       state.imageLibrarySelected = [];
       state.imageLibraryBusy = false;
       state.imageLibraryMessage = '';
       state.imageLibraryTone = '';
+      state.imageLibraryDeleteBusy = '';
+      state.bulkImageHideSelected = [];
       state.materialUploadBusy = false;
       state.materialDeleteBusy = '';
       state.materialUploadMessage = '';
@@ -4676,6 +4760,7 @@
       state.filters = emptyLotFilters();
       state.imageFilters = emptyMediaFilters();
       state.parameterFilters = emptyMediaFilters();
+      state.previewFilters = emptyMediaFilters();
       populateFilters();
       renderAll();
       navigate(state.activeView);
@@ -4741,15 +4826,17 @@
       state.dirty = false;
       state.sourceFeedStatus = null;
       state.sourceFeedBusy = false;
-      clearBulkImageFiles();
-      state.bulkImageUploadBusy = false;
-      state.bulkImageUploadMessage = '';
-      state.bulkImageUploadTone = '';
+      clearLibraryUploadFiles();
+      state.libraryUploadBusy = false;
+      state.libraryUploadMessage = '';
+      state.libraryUploadTone = '';
       state.imageLibrary = [];
       state.imageLibrarySelected = [];
       state.imageLibraryBusy = false;
       state.imageLibraryMessage = '';
       state.imageLibraryTone = '';
+      state.imageLibraryDeleteBusy = '';
+      state.bulkImageHideSelected = [];
       state.materialUploadBusy = false;
       state.materialDeleteBusy = '';
       state.materialUploadMessage = '';
@@ -4758,6 +4845,7 @@
       state.filters = emptyLotFilters();
       state.imageFilters = emptyMediaFilters();
       state.parameterFilters = emptyMediaFilters();
+      state.previewFilters = emptyMediaFilters();
       populateFilters();
       renderAll();
       navigate('assets');
