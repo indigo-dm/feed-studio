@@ -491,15 +491,18 @@
 
   function applyChessboardSelection() {
     var ids = Array.from(new Set(state.chessboardDraftIds.map(String)));
-    var filters = chessboardFiltersForContext(state.chessboardContext);
+    var context = state.chessboardContext;
+    var filters = chessboardFiltersForContext(context);
+    closeChessboard();
     if (filters) {
       filters.selection_ids = ids;
       state.page = 1;
-      if (state.chessboardContext === 'lots') renderLots();
-      if (state.chessboardContext === 'images') renderImages();
-      if (state.chessboardContext === 'parameters') renderParameters();
-      if (state.chessboardContext === 'preview') renderPreview();
-    } else if (state.chessboardContext === 'promotions') {
+      if (context === 'lots') renderLots();
+      if (context === 'images') renderImages();
+      if (context === 'parameters') renderParameters();
+      if (context === 'preview') renderPreview();
+      if (context === 'assets') renderAssets();
+    } else if (context === 'promotions') {
       var rule = state.rules.find(function (item) { return item.id === state.activeRuleId; });
       if (rule) {
         rule.include_ids = ids;
@@ -507,7 +510,6 @@
         renderAll();
       }
     }
-    closeChessboard();
     showToast(ids.length ? 'Выбрано квартир: ' + ids.length : 'Точный выбор снят');
   }
 

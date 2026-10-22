@@ -354,6 +354,26 @@ const contentTypes = {
     return { planWidth: Math.round(planBox.width), aligned: planBox.top < searchBox.bottom && searchBox.top < planBox.bottom && planBox.top < countBox.bottom && countBox.top < planBox.bottom };
   });
   await page.locator('#material-filter-search').fill('');
+  await page.locator('[data-open-chessboard="assets"]').click();
+  await page.locator('#chessboard-clear').click();
+  const materialChessboardIds = [];
+  for (let index = 0; index < 2; index += 1) {
+    const checkbox = page.locator('[data-chessboard-id]').nth(index);
+    materialChessboardIds.push(await checkbox.getAttribute('data-chessboard-id'));
+    await checkbox.check();
+  }
+  await page.locator('#apply-chessboard').click();
+  const materialChessboardImmediate = {
+    count: Number(await page.locator('#material-filter-count').innerText()),
+    selected: await page.locator('#material-preview-lot').inputValue(),
+    button: await page.locator('[data-open-chessboard="assets"]').innerText(),
+    expected: materialChessboardIds
+  };
+  materialChessboardImmediate.works = materialChessboardImmediate.count === materialChessboardIds.length &&
+    materialChessboardIds.includes(materialChessboardImmediate.selected) && materialChessboardImmediate.button.includes(String(materialChessboardIds.length));
+  await page.locator('[data-open-chessboard="assets"]').click();
+  await page.locator('#chessboard-clear').click();
+  await page.locator('#apply-chessboard').click();
   const cardOptionsDefaultOn = await page.locator('#show-key-render').isChecked() &&
     await page.locator('#show-house-badge').isChecked() &&
     await page.locator('#show-decoration').isChecked();
@@ -394,6 +414,26 @@ const contentTypes = {
     return { planWidth: Math.round(planBox.width), aligned: planBox.top < searchBox.bottom && searchBox.top < planBox.bottom && planBox.top < countBox.bottom && countBox.top < planBox.bottom };
   });
   await page.locator('#preview-filter-search').fill('');
+  await page.locator('[data-open-chessboard="preview"]').click();
+  await page.locator('#chessboard-clear').click();
+  const previewChessboardIds = [];
+  for (let index = 0; index < 2; index += 1) {
+    const checkbox = page.locator('[data-chessboard-id]').nth(index);
+    previewChessboardIds.push(await checkbox.getAttribute('data-chessboard-id'));
+    await checkbox.check();
+  }
+  await page.locator('#apply-chessboard').click();
+  const previewChessboardImmediate = {
+    count: Number(await page.locator('#preview-filter-count').innerText()),
+    selected: await page.locator('#preview-lot').inputValue(),
+    button: await page.locator('[data-open-chessboard="preview"]').innerText(),
+    expected: previewChessboardIds
+  };
+  previewChessboardImmediate.works = previewChessboardImmediate.count === previewChessboardIds.length &&
+    previewChessboardIds.includes(previewChessboardImmediate.selected) && previewChessboardImmediate.button.includes(String(previewChessboardIds.length));
+  await page.locator('[data-open-chessboard="preview"]').click();
+  await page.locator('#chessboard-clear').click();
+  await page.locator('#apply-chessboard').click();
 
   await page.locator('[data-view="images"]').click();
   const apartmentFilterSectionsAvailable = await page.locator('#lot-apartment-filter .toolbar-apartment-multi').count() === 1 &&
@@ -1074,10 +1114,13 @@ const contentTypes = {
   };
   result.ok = result.ok && previewToolbarLayout.planWidth <= 270 && previewToolbarLayout.aligned &&
     materialFiltersWork && materialToolbarLayout.planWidth <= 270 && materialToolbarLayout.aligned && promotionColorRolesWork &&
+    materialChessboardImmediate.works && previewChessboardImmediate.works &&
     liveMaterialPreview.promotionFrameColor === '#123ABC' && liveMaterialPreview.promotionTextColor === '#123ABC' &&
     submitted.material_settings.promotion_frame_color === '#123ABC' && submitted.material_settings.promotion_text_color === '#123ABC';
   result.preview_filters = { works: previewFiltersWork, layout: previewToolbarLayout };
   result.material_filters = { works: materialFiltersWork, layout: materialToolbarLayout };
+  result.material_chessboard_immediate = materialChessboardImmediate;
+  result.preview_chessboard_immediate = previewChessboardImmediate;
   result.promotion_colors = {
     roles: promotionColorRolesWork,
     frame: liveMaterialPreview.promotionFrameColor,
