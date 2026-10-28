@@ -67,6 +67,9 @@
     feedRefreshOperation: null,
     feedRefreshPollTimer: null,
     feedRefreshBusy: false,
+    validation: null,
+    validationPollTimer: null,
+    validationBusy: false,
     draftSaved: false,
     dirty: false,
     projectLoadToken: 0
@@ -847,6 +850,7 @@
     }
     renderSavedState();
     renderUnsavedChangeButton();
+    renderValidation();
   }
 
   function saveDraft(showMessage) {
@@ -1952,6 +1956,167 @@
 
   function serviceEndpoint(path) {
     return uploadServiceUrl().replace(/\/+$/, '') + path;
+  }
+
+  async function sha256String(value) {
+    var bytes = new TextEncoder().encode(String(value || ''));
+    var digest = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest), function (byte) { return byte.toString(16).padStart(2, '0'); }).join('');
+  }
+
+  function stopValidationPolling() {
+    if (state.validationPollTimer) window.clearTimeout(state.validationPollTimer);
+    state.validationPollTimer = null;
+  }
+
+  function validationLabel(validation) {
+    if (!validation || validation.status === 'not_run') return ['Не проверялся', 'not-run'];
+    if (['queued', 'checking'].indexOf(validation.status) >= 0) return ['Проверяется', 'checking'];
+    if (validation.status === 'technical_error') return ['Не завершена', 'failed'];
+    if (validation.current === false) return ['Результат устарел', 'stale'];
+    if (validation.status === 'passed') return ['Пройдена', 'passed'];
+    return ['Есть ошибки', 'failed'];
+  }
+
+  function renderValidation() {
+    var badge = $('#feed-validation-badge');
+    var summary = $('#feed-validation-summary');
+    var button = $('#validate-feed');
+    var protocol = $('#feed-validation-protocol');
+    var body = $('#feed-validation-protocol-body');
+    if (!badge || !summary || !button || !protocol || !body) return;
+    var validation = state.validation || { status: 'not_run' };
+    if (state.dirty && ['passed', 'has_errors'].indexOf(validation.status) >= 0) validation.current = false;
+    var label = validationLabel(validation);
+    badge.className = 'validation-badge ' + label[1];
+    badge.textContent = label[0];
+    var checking = ['queued', 'checking'].indexOf(validation.status) >= 0;
+    button.disabled = state.setupMode || state.validationBusy || checking;
+    button.textContent = checking ? 'Проверяем…' : (state.validationBusy ? 'Отправляем…' : 'Проверить фид');
+    protocol.classList.add('hidden');
+    protocol.open = false;
+    body.innerHTML = '';
+    if (validation.status === 'not_run') {
+      summary.textContent = 'Для этого объекта ещё нет сохранённого протокола.';
+      return;
+    }
+    if (checking) {
+      summary.textContent = 'Формируется временный исходящий XML и отправляется официальному валидатору Авито.';
+      return;
+    }
+    if (validation.status === 'technical_error') {
+      summary.textContent = validation.message || 'Официальная проверка не завершилась. Повторите запрос.';
+      return;
+    }
+    var counts = [];
+    if (validation.checked_ads != null) counts.push('проверено объявлений: ' + validation.checked_ads);
+    if (validation.errors) counts.push('объявлений с ошибками: ' + validation.errors);
+    if (validation.warnings) counts.push('объявлений с предупреждениями: ' + validation.warnings);
+    summary.innerHTML = '<strong>' + esc(validation.status_text || label[0]) + '</strong>' +
+      (counts.length ? '<span>' + esc(counts.join(' · ')) + '</span>' : '') +
+      (validation.completed_at ? '<small>Проверено ' + esc(formatDateTime(validation.completed_at)) +
+        (validation.current === false ? ' · после проверки настройки или исходный фид изменились' : '') + '</small>' : '');
+    var issues = Array.isArray(validation.issues) ? validation.issues : [];
+    protocol.classList.remove('hidden');
+    if (!issues.length) {
+      body.innerHTML = '<div class="validation-empty">В протоколе нет замечаний к структуре XML.</div>';
+      return;
+    }
+    body.innerHTML = '<div class="validation-issue-list">' + issues.map(function (issue) {
+      return '<article class="validation-issue ' + (issue.severity === 'error' ? 'error' : 'warning') + '">' +
+        '<div><strong>ID ' + esc(issue.ad_id || '—') + '</strong><span>' + esc(issue.severity === 'error' ? 'Ошибка' : 'Предупреждение') + '</span></div>' +
+        '<p>' + esc(issue.message || '') + '</p></article>';
+    }).join('') + '</div>';
+  }
+
+  async function markValidationCurrency(validation) {
+    if (!validation || ['passed', 'has_errors'].indexOf(validation.status) < 0) return validation;
+    try {
+      var currentHash = await sha256String(JSON.stringify(settingsPayload()));
+      var publishedAfterValidation = Boolean(
+        state.status && state.status.checked_at && validation.completed_at &&
+        Date.parse(state.status.checked_at) > Date.parse(validation.completed_at)
+      );
+      validation.current = currentHash === validation.settings_hash && !publishedAfterValidation && !state.dirty;
+    } catch (error) {
+      validation.current = false;
+    }
+    return validation;
+  }
+
+  async function pollValidationStatus() {
+    stopValidationPolling();
+    if (!state.project || state.setupMode || !uploadServiceUrl()) return;
+    var projectSlug = state.project.slug;
+    var credential = window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.get ? window.FEED_STUDIO_CREDENTIAL.get() : '';
+    if (!credential) return;
+    try {
+      var response = await fetch(serviceEndpoint('/validation?project=' + encodeURIComponent(projectSlug)), {
+        headers: { Authorization: 'Bearer ' + credential },
+        cache: 'no-store'
+      });
+      var payload = await response.json().catch(function () { return {}; });
+      if (!response.ok) throw new Error(payload.error || 'Не удалось получить статус проверки.');
+      if (!state.project || state.project.slug !== projectSlug) return;
+      state.validation = await markValidationCurrency(payload);
+      renderValidation();
+      if (['queued', 'checking'].indexOf(payload.status) >= 0) {
+        state.validationPollTimer = window.setTimeout(pollValidationStatus, 5000);
+      }
+    } catch (error) {
+      if (!state.project || state.project.slug !== projectSlug) return;
+      state.validation = { status: 'technical_error', message: error.message || 'Не удалось получить статус проверки.' };
+      renderValidation();
+    }
+  }
+
+  async function startFeedValidation() {
+    if (state.validationBusy || state.setupMode) return;
+    var error = validateSettings();
+    if (error) {
+      showToast(error);
+      return;
+    }
+    if (!uploadServiceUrl()) {
+      showToast('Сервис проверки пока недоступен.');
+      return;
+    }
+    var credential = window.FEED_STUDIO_CREDENTIAL && window.FEED_STUDIO_CREDENTIAL.get ? window.FEED_STUDIO_CREDENTIAL.get() : '';
+    if (!credential) {
+      showToast('Выйдите и войдите в Feed Studio повторно.');
+      return;
+    }
+    saveDraft(false);
+    state.validationBusy = true;
+    renderValidation();
+    try {
+      var response = await fetch(serviceEndpoint('/validation'), {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + credential, 'Content-Type': 'application/json' },
+        body: JSON.stringify(settingsPayload())
+      });
+      var payload = await response.json().catch(function () { return {}; });
+      if (!response.ok) {
+        if (response.status === 409 && payload.validation) {
+          state.validation = payload.validation;
+          renderValidation();
+          pollValidationStatus();
+          return;
+        }
+        throw new Error(payload.error || 'Не удалось запустить проверку.');
+      }
+      state.validation = payload;
+      renderValidation();
+      showToast('Фид отправлен на проверку в Авито');
+      pollValidationStatus();
+    } catch (validationError) {
+      state.validation = { status: 'technical_error', message: validationError.message || 'Не удалось запустить проверку.' };
+      renderValidation();
+      showToast(state.validation.message);
+    } finally {
+      state.validationBusy = false;
+      renderValidation();
+    }
   }
 
   function stopFeedRefreshPolling() {
@@ -4207,6 +4372,7 @@
     renderFeedRefreshState();
     renderUnsavedChangeButton();
     renderPublishedChangeButton();
+    renderValidation();
   }
 
   function settingsPayload() {
@@ -4743,6 +4909,7 @@
       renderAll();
     });
     $('#save-draft').addEventListener('click', function () { saveDraft(true); });
+    $('#validate-feed').addEventListener('click', startFeedValidation);
     $('#review-unsaved').addEventListener('click', openChangesModal);
     $('#review-published').addEventListener('click', openPublishedChangesModal);
     $('#close-changes').addEventListener('click', function () { $('#changes-modal').classList.add('hidden'); });
@@ -4837,6 +5004,7 @@
   async function loadProject(slug, preservePublication) {
     stopPublishPolling();
     stopFeedRefreshPolling();
+    stopValidationPolling();
     var project = state.registry.projects.find(function (item) { return item.slug === slug; });
     if (!project) return;
     var loadToken = ++state.projectLoadToken;
@@ -4901,6 +5069,8 @@
       state.materialUploadTone = '';
       state.sourceFeedStatus = null;
       state.sourceFeedBusy = false;
+      state.validation = null;
+      state.validationBusy = false;
       state.page = 1;
       state.filters = emptyLotFilters();
       state.imageFilters = emptyMediaFilters();
@@ -4915,6 +5085,7 @@
       loadProjectServices(project.slug, loadToken);
       pollPublishStatus();
       pollFeedRefreshStatus();
+      pollValidationStatus();
     } catch (error) {
       if (loadToken !== state.projectLoadToken) return;
       document.querySelector('main').innerHTML = '<section class="panel empty-state"><div><h2>Кабинет временно недоступен</h2><p>' + esc(error.message) + '</p></div></section>';
@@ -4972,6 +5143,8 @@
       state.dirty = false;
       state.sourceFeedStatus = null;
       state.sourceFeedBusy = false;
+      state.validation = { status: 'not_run' };
+      state.validationBusy = false;
       clearLibraryUploadFiles();
       state.libraryUploadBusy = false;
       state.libraryUploadMessage = '';
