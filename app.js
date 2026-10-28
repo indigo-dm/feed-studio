@@ -1978,6 +1978,36 @@
     return ['Есть ошибки', 'failed'];
   }
 
+  function validationIssueMessages(issue) {
+    if (Array.isArray(issue && issue.messages) && issue.messages.length) {
+      return issue.messages.map(function (message) { return String(message || '').trim(); }).filter(Boolean);
+    }
+    var raw = String(issue && issue.message || '').replace(/\s+/g, ' ').trim();
+    var messages = [];
+    function add(message) {
+      if (message && messages.indexOf(message) < 0) messages.push(message);
+    }
+    if (/Id новостройки:\s*не задано|Не заполнен(?: обязательный параметр)? NewDevelopmentId/i.test(raw)) {
+      add('Не заполнен NewDevelopmentId (ID новостройки).');
+    }
+    var addressError = raw.indexOf('Неправильно заполнен обязательный параметр — Адрес') >= 0 ||
+      /Address \(адрес\).*(?:не заполнен|неверн)/i.test(raw);
+    var addressMissing = addressError && (/Введите значение параметра/i.test(raw) || /не заполнен/i.test(raw));
+    var addressFormat = addressError && (/Неверный формат/i.test(raw) || /неверн/i.test(raw));
+    if (addressMissing && addressFormat) add('Address (адрес) не заполнен или имеет неверный формат.');
+    else if (addressMissing) add('Не заполнен Address (адрес).');
+    else if (addressFormat) add('Address (адрес) имеет неверный формат.');
+    if (!messages.length && /Элементы были проигнорированы/i.test(raw) && /NewDevelopmentId/i.test(raw)) {
+      add('Address проигнорирован: геопривязка определяется по NewDevelopmentId.');
+    }
+    if (messages.length) return messages;
+    var fallback = raw
+      .replace(/^\d+\s+[A-Za-z0-9_-]+\s+/, '')
+      .replace(/\s*Подробнее\.\.\./g, '')
+      .trim();
+    return fallback ? [fallback] : [];
+  }
+
   function renderValidation() {
     var badge = $('#feed-validation-badge');
     var summary = $('#feed-validation-summary');
@@ -2015,6 +2045,7 @@
     summary.innerHTML = '<strong>' + esc(validation.status_text || label[0]) + '</strong>' +
       (counts.length ? '<span>' + esc(counts.join(' · ')) + '</span>' : '') +
       (validation.completed_at ? '<small>Проверено ' + esc(formatDateTime(validation.completed_at)) +
+        (state.draftSaved ? ' · по сохранённому черновику' : '') +
         (validation.current === false ? ' · после проверки настройки или исходный фид изменились' : '') + '</small>' : '');
     var issues = Array.isArray(validation.issues) ? validation.issues : [];
     protocol.classList.remove('hidden');
@@ -2023,9 +2054,10 @@
       return;
     }
     body.innerHTML = '<div class="validation-issue-list">' + issues.map(function (issue) {
+      var messages = validationIssueMessages(issue);
       return '<article class="validation-issue ' + (issue.severity === 'error' ? 'error' : 'warning') + '">' +
         '<div><strong>ID ' + esc(issue.ad_id || '—') + '</strong><span>' + esc(issue.severity === 'error' ? 'Ошибка' : 'Предупреждение') + '</span></div>' +
-        '<p>' + esc(issue.message || '') + '</p></article>';
+        '<ul>' + messages.map(function (message) { return '<li>' + esc(message) + '</li>'; }).join('') + '</ul></article>';
     }).join('') + '</div>';
   }
 

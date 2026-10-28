@@ -244,7 +244,10 @@ const contentTypes = {
         status_text: 'XML не полностью соответствует формату', settings_hash: settingsHash,
         requested_at: '2026-10-28T10:00:00Z', completed_at: '2026-10-28T10:01:00Z',
         checked_ads: 163, feed_ads: 163, errors: 1, warnings: 0,
-        issues: [{ severity: 'error', ad_id: '9301142', message: 'Не заполнено обязательное поле Category' }]
+        issues: [{
+          severity: 'error', ad_id: '9301142',
+          message: '1 9301142 Address Элементы были проигнорированы. Данные об адресе и координатах были получены по значению элемента NewDevelopmentId / Id новостройки. Id новостройки: не задано Не заполнен обязательный параметр NewDevelopmentId. Укажите его значение по правилам. Подробнее... Ошибка параметра Неправильно заполнен обязательный параметр — Адрес. Неверный формат. Правила: Address / Адрес. Если ошибка повторяется, попробуйте другие способы исправления. Подробнее... Ошибка параметра Неправильно заполнен обязательный параметр — Адрес. Введите значение параметра. Правила: Address / Адрес. Если ошибка повторяется, попробуйте другие способы исправления. Подробнее...'
+        }]
       }) });
     }
     if (url.pathname === '/status') return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({ request: 77, status: 'building' }) });
@@ -335,7 +338,10 @@ const contentTypes = {
   await page.locator('#feed-validation-protocol').evaluate((details) => { details.open = true; });
   const validationProtocolText = await page.locator('#feed-validation-protocol-body').innerText();
   const validationProtocolWorks = validationProtocolText.includes('9301142') &&
-    validationProtocolText.includes('Не заполнено обязательное поле Category');
+    validationProtocolText.includes('Не заполнен NewDevelopmentId (ID новостройки).') &&
+    validationProtocolText.includes('Address (адрес) не заполнен или имеет неверный формат.') &&
+    !validationProtocolText.includes('Подробнее') && !validationProtocolText.includes('Правила:') &&
+    await page.locator('#feed-validation-protocol-body .validation-issue li').count() === 2;
   await page.locator('[data-view="assets"]').click();
   const initialCards = await page.locator('.asset-card').count();
   const activeBefore = await page.locator('.asset-status.active').count();
