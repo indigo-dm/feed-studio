@@ -76,6 +76,7 @@
   };
   var projectDataCache = new Map();
   var LAST_PROJECT_KEY = 'feed-studio-last-project-v1';
+  var dashboardPreviewRequest = 0;
 
   var $ = function (selector, root) { return (root || document).querySelector(selector); };
   var $$ = function (selector, root) { return Array.from((root || document).querySelectorAll(selector)); };
@@ -1769,6 +1770,52 @@
     showToast('Цвет добавлен. Теперь его можно сделать основным.');
   }
 
+  function renderDashboardPreview() {
+    var image = $('#dashboard-preview');
+    var unavailable = $('#dashboard-preview-unavailable');
+    var request = ++dashboardPreviewRequest;
+    var seen = new Set();
+    var candidates = [];
+    state.inventory.items.forEach(function (item) {
+      [item.image, item.final_image, item.thumbnail].forEach(function (url) {
+        var normalized = String(url || '').trim();
+        if (normalized && !seen.has(normalized)) {
+          seen.add(normalized);
+          candidates.push(normalized);
+        }
+      });
+    });
+    var candidateIndex = 0;
+
+    function showUnavailable() {
+      if (request !== dashboardPreviewRequest) return;
+      image.onload = null;
+      image.onerror = null;
+      image.removeAttribute('src');
+      image.hidden = true;
+      unavailable.hidden = false;
+    }
+
+    function tryNext() {
+      if (request !== dashboardPreviewRequest) return;
+      if (candidateIndex >= candidates.length) {
+        showUnavailable();
+        return;
+      }
+      image.src = versionedUrl(candidates[candidateIndex++]);
+    }
+
+    image.hidden = false;
+    unavailable.hidden = true;
+    image.onload = function () {
+      if (request !== dashboardPreviewRequest) return;
+      image.hidden = false;
+      unavailable.hidden = true;
+    };
+    image.onerror = tryNext;
+    tryNext();
+  }
+
   function renderStats() {
     $('#stat-source').textContent = state.inventory.source_ads;
     $('#stat-plans').textContent = state.inventory.items.filter(function (item) {
@@ -1776,9 +1823,7 @@
     }).length;
     $('#stat-promotions').textContent = state.rules.filter(function (rule) { return rule.enabled; }).length;
     $('#stat-updated').textContent = formatDateTime(state.inventory.checked_at);
-    if (state.inventory.items[0]) {
-      $('#dashboard-preview').src = versionedUrl(state.inventory.items[0].image);
-    }
+    renderDashboardPreview();
   }
 
   function populateFilters() {
