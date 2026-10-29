@@ -72,7 +72,8 @@
     validationBusy: false,
     draftSaved: false,
     dirty: false,
-    projectLoadToken: 0
+    projectLoadToken: 0,
+    registryRefreshBusy: false
   };
   var projectDataCache = new Map();
   var LAST_PROJECT_KEY = 'feed-studio-last-project-v1';
@@ -258,6 +259,42 @@
       'список объектов',
       appendQuery(RAW_DATA_ROOT + '/projects.json', 'v', Date.now())
     );
+  }
+
+  function refreshVisibleMedia(version) {
+    ['src', 'data-resilient-src', 'data-lightbox-src'].forEach(function (attribute) {
+      $$('[' + attribute + ']').forEach(function (element) {
+        var value = String(element.getAttribute(attribute) || '');
+        if (!value || !/\/media\/projects\//.test(value)) return;
+        try {
+          var url = new URL(value, document.baseURI || window.location.href);
+          url.searchParams.set('v', version);
+          element.setAttribute(attribute, url.href);
+        } catch (error) {
+          // Leave malformed or unsupported URLs unchanged.
+        }
+      });
+    });
+  }
+
+  async function refreshRegistryVersion() {
+    if (document.visibilityState === 'hidden' || state.registryRefreshBusy || !state.registry || !state.project) return;
+    state.registryRefreshBusy = true;
+    try {
+      var previousVersion = cacheVersion();
+      var latestRegistry = await loadRegistry();
+      var nextVersion = latestRegistry && latestRegistry.build_id ? String(latestRegistry.build_id) : previousVersion;
+      if (nextVersion === previousVersion) return;
+      var currentSlug = state.project.slug;
+      state.registry = latestRegistry;
+      state.project = latestRegistry.projects.find(function (project) { return project.slug === currentSlug; }) || state.project;
+      renderProjectOptions();
+      refreshVisibleMedia(nextVersion);
+    } catch (error) {
+      // Keep the currently loaded project usable when the background refresh is unavailable.
+    } finally {
+      state.registryRefreshBusy = false;
+    }
   }
   var draftKey = function () { return 'feed-studio-rules-v1-' + (state.project ? state.project.slug : 'default'); };
   var operationKey = function () { return 'feed-studio-publish-v1-' + (state.project ? state.project.slug : 'default'); };
@@ -4737,6 +4774,10 @@
   }
 
   function bindStaticEvents() {
+    window.addEventListener('focus', refreshRegistryVersion);
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') refreshRegistryVersion();
+    });
     $$('.nav-item').forEach(function (button) {
       button.addEventListener('click', function () { navigate(button.dataset.view); });
     });
