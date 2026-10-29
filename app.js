@@ -78,6 +78,7 @@
   var projectDataCache = new Map();
   var LAST_PROJECT_KEY = 'feed-studio-last-project-v1';
   var dashboardPreviewRequest = 0;
+  var livePromotionResizeObserver = null;
 
   var $ = function (selector, root) { return (root || document).querySelector(selector); };
   var $$ = function (selector, root) { return Array.from((root || document).querySelectorAll(selector)); };
@@ -4212,9 +4213,27 @@
     } else if (rule) {
       $('#live-promo-label').textContent = rule.label;
       $('#live-promo-text').textContent = rule.text;
+      window.requestAnimationFrame(fitLivePromotion);
       $('#applied-rule').innerHTML = '<span>Применяется правило</span><strong>' + esc(rule.name) + ': ' + esc(rule.text) + '</strong>';
     } else {
       $('#applied-rule').innerHTML = '<span>Акция</span><strong>К этой квартире не применяется</strong>';
+    }
+  }
+
+  function fitLivePromotion() {
+    var promo = $('#live-promo');
+    var canvas = $('#preview-canvas');
+    if (!promo || !canvas || promo.classList.contains('hidden')) return;
+    var surfaceWidth = canvas.clientWidth;
+    if (!surfaceWidth) return;
+    var scale = Math.max(0.01, surfaceWidth / 1200);
+    var fontSize = 34 * scale;
+    var minimumSize = 18 * scale;
+    promo.style.maxWidth = (470 * scale) + 'px';
+    promo.style.fontSize = fontSize + 'px';
+    while (promo.scrollWidth > promo.clientWidth + 1 && fontSize > minimumSize) {
+      fontSize = Math.max(minimumSize, fontSize - scale);
+      promo.style.fontSize = fontSize + 'px';
     }
   }
 
@@ -4399,6 +4418,9 @@
     if (canvas.id === 'preview-live-card') {
       $('#preview-image').classList.add('hidden');
       $('#preview-material-note').classList.remove('hidden');
+      window.requestAnimationFrame(function () {
+        window.requestAnimationFrame(fitLivePromotion);
+      });
     }
   }
 
@@ -4775,6 +4797,13 @@
 
   function bindStaticEvents() {
     window.addEventListener('focus', refreshRegistryVersion);
+    window.addEventListener('resize', fitLivePromotion);
+    if (window.ResizeObserver && $('#preview-canvas')) {
+      livePromotionResizeObserver = new ResizeObserver(fitLivePromotion);
+      livePromotionResizeObserver.observe($('#preview-canvas'));
+      if ($('#preview-live-card')) livePromotionResizeObserver.observe($('#preview-live-card'));
+      if ($('#preview-image')) livePromotionResizeObserver.observe($('#preview-image'));
+    }
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'visible') refreshRegistryVersion();
     });
