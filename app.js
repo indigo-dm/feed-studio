@@ -2020,6 +2020,7 @@
     if (validation.status === 'technical_error') return ['Не завершена', 'failed'];
     if (validation.current === false) return ['Результат устарел', 'stale'];
     if (validation.status === 'passed') return ['Пройдена', 'passed'];
+    if (validation.status === 'has_warnings') return ['Есть предупреждения', 'warning'];
     return ['Есть ошибки', 'failed'];
   }
 
@@ -2061,7 +2062,7 @@
     var body = $('#feed-validation-protocol-body');
     if (!badge || !summary || !button || !protocol || !body) return;
     var validation = state.validation || { status: 'not_run' };
-    if (state.dirty && ['passed', 'has_errors'].indexOf(validation.status) >= 0) validation.current = false;
+    if (state.dirty && ['passed', 'has_warnings', 'has_errors'].indexOf(validation.status) >= 0) validation.current = false;
     var label = validationLabel(validation);
     badge.className = 'validation-badge ' + label[1];
     badge.textContent = label[0];
@@ -2107,7 +2108,7 @@
   }
 
   async function markValidationCurrency(validation) {
-    if (!validation || ['passed', 'has_errors'].indexOf(validation.status) < 0) return validation;
+    if (!validation || ['passed', 'has_warnings', 'has_errors'].indexOf(validation.status) < 0) return validation;
     try {
       var currentHash = await sha256String(JSON.stringify(settingsPayload()));
       var publishedAfterValidation = Boolean(
