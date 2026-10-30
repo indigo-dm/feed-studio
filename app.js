@@ -3689,6 +3689,7 @@
     if (catalog.kind === 'multi') return [catalog.values[0]];
     var source = item && item.source_values ? item.source_values[catalog.tag] : null;
     if (source != null && String(source).trim()) return String(source).trim();
+    if (catalog.default != null) return String(catalog.default);
     if (catalog.values && catalog.values.length) return catalog.values[0];
     return catalog.min != null ? String(catalog.min) : '';
   }
@@ -3722,6 +3723,10 @@
     if (catalog.kind === 'text') {
       return '<input type="text" data-' + prefix + '-value="' + esc(catalog.tag) + '" maxlength="' + esc(catalog.max || 500) +
         '" value="' + esc(value || '') + '" placeholder="Введите значение">';
+    }
+    if (catalog.kind === 'url') {
+      return '<input type="url" data-' + prefix + '-value="' + esc(catalog.tag) + '" maxlength="' + esc(catalog.max || 1500) +
+        '" value="' + esc(value || '') + '" placeholder="https://vkvideo.ru/video-… или https://rutube.ru/video/…/">';
     }
     return '<select data-' + prefix + '-value="' + esc(catalog.tag) + '">' + (catalog.values || []).map(function (option) {
       return '<option value="' + esc(option) + '" ' + (String(value) === String(option) ? 'selected' : '') + '>' + esc(option) + '</option>';
@@ -5007,7 +5012,7 @@
       var value = readParameterControl($('#bulk-parameter-value'), catalog, 'bulk-param');
       if (catalog.kind === 'multi' && !value.length) { showToast('Выберите хотя бы одно значение.'); return; }
       if (catalog.kind === 'richtext' && !String(value).replace(/<[^>]*>/g, '').trim()) { showToast('Описание не может быть пустым.'); return; }
-      if (catalog.kind === 'text' && !String(value).trim()) { showToast('Значение не может быть пустым.'); return; }
+      if ((catalog.kind === 'text' || catalog.kind === 'url') && !String(value).trim()) { showToast('Значение не может быть пустым.'); return; }
       var values = {}; values[catalog.tag] = value;
       state.parameterSettings.bulk_rules.push(Object.assign({
         id: 'parameter-rule-' + Date.now(),
