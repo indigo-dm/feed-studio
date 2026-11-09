@@ -4598,7 +4598,7 @@
   function validateSettings() {
     if (state.rules.length > 10) return 'Допускается не более 10 правил.';
     if (state.imageSettings.bulk_rules.length > 30) return 'Допускается не более 30 массовых правил изображений.';
-    if (state.parameterSettings.bulk_rules.length > 30) return 'Допускается не более 30 массовых правил параметров.';
+    if (state.parameterSettings.bulk_rules.length > 250) return 'Допускается не более 250 массовых правил параметров.';
     if (state.excludedLotIds.length > 250) return 'Допускается исключить не более 250 лотов.';
     for (var imageRuleIndex = 0; imageRuleIndex < state.imageSettings.bulk_rules.length; imageRuleIndex += 1) {
       var imageRule = state.imageSettings.bulk_rules[imageRuleIndex];
