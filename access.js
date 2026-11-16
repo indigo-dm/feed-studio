@@ -40,7 +40,7 @@
   function loadApplication() {
     if (document.querySelector('script[data-feed-studio-app]')) return;
     var script = document.createElement('script');
-    script.src = 'app.js?v=20261109-bulk-parameters-1';
+    script.src = 'app.js?v=20261116-apartment-filter-1';
     script.dataset.feedStudioApp = '1';
     document.body.appendChild(script);
   }

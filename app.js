@@ -415,7 +415,7 @@
       .sort(function (left, right) { return left.localeCompare(right, 'ru', { numeric: true }); });
   }
 
-  function restoreToolbarApartmentFilter(rootId, query) {
+  function restoreToolbarApartmentFilter(rootId, query, scrollTop) {
     var details = $('#' + rootId + ' details');
     if (!details) return;
     details.open = true;
@@ -423,8 +423,10 @@
     if (input) {
       input.value = query || '';
       input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.focus();
+      input.focus({ preventScroll: true });
     }
+    var options = $('.toolbar-apartment-options', details);
+    if (options && Number.isFinite(Number(scrollTop))) options.scrollTop = Number(scrollTop);
   }
 
   function renderToolbarApartmentFilter(rootId, filters, renderOwner) {
@@ -455,22 +457,24 @@
     $$('[data-apartment-filter-option] input', root).forEach(function (input) {
       input.addEventListener('change', function () {
         var query = search.value;
+        var scrollTop = $('.toolbar-apartment-options', root).scrollTop;
         if (input.checked && filters.apartment_numbers.indexOf(input.value) < 0) filters.apartment_numbers.push(input.value);
         if (!input.checked) filters.apartment_numbers = filters.apartment_numbers.filter(function (value) { return value !== input.value; });
         state.page = 1;
         renderOwner();
-        restoreToolbarApartmentFilter(rootId, query);
+        restoreToolbarApartmentFilter(rootId, query, scrollTop);
       });
     });
     $('[data-apartment-filter-all]', root).addEventListener('click', function () {
       var query = search.value;
+      var scrollTop = $('.toolbar-apartment-options', root).scrollTop;
       $$('[data-apartment-filter-option]', root).filter(function (option) { return !option.hidden; }).forEach(function (option) {
         var value = $('input', option).value;
         if (filters.apartment_numbers.indexOf(value) < 0) filters.apartment_numbers.push(value);
       });
       state.page = 1;
       renderOwner();
-      restoreToolbarApartmentFilter(rootId, query);
+      restoreToolbarApartmentFilter(rootId, query, scrollTop);
     });
     $('[data-apartment-filter-clear]', root).addEventListener('click', function () {
       filters.apartment_numbers = [];
@@ -4598,7 +4602,6 @@
   function validateSettings() {
     if (state.rules.length > 10) return 'Допускается не более 10 правил.';
     if (state.imageSettings.bulk_rules.length > 30) return 'Допускается не более 30 массовых правил изображений.';
-    if (state.parameterSettings.bulk_rules.length > 250) return 'Допускается не более 250 массовых правил параметров.';
     if (state.excludedLotIds.length > 250) return 'Допускается исключить не более 250 лотов.';
     for (var imageRuleIndex = 0; imageRuleIndex < state.imageSettings.bulk_rules.length; imageRuleIndex += 1) {
       var imageRule = state.imageSettings.bulk_rules[imageRuleIndex];
