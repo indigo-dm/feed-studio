@@ -7,7 +7,7 @@ on:
   repository_dispatch:
     types: [feed-data-updated]
   schedule:
-    - cron: "20 0,13 * * *"
+    - cron: "47 0,13 * * *"
       timezone: "Europe/Moscow"
 
 permissions:
@@ -29,24 +29,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Checkout current generated feeds
-        uses: actions/checkout@v7
-        with:
-          repository: indigo-dm/novyy-gorizont-feed
-          ref: feed-data
-          path: generated-feed-data
-
       - name: Prepare static site
         run: |
           mkdir site
           cp index.html app.css app.js access.js access-config.js runtime-config.js robots.txt .nojekyll site/
           cp -R assets site/assets
           mkdir -p site/feeds
-          find generated-feed-data/published/projects -mindepth 2 -maxdepth 2 -name avito.xml -print0 | while IFS= read -r -d '' feed; do
-            slug="$(basename "$(dirname "$feed")")"
+          curl --fail --silent --show-error --retry 3 \
+            https://feed-api.indigo-dm.ru/data/projects.json \
+            --output /tmp/feed-projects.json
+          node -e "const p=require('/tmp/feed-projects.json'); for(const item of p.projects||[]) if(item.available) console.log(item.slug)" > /tmp/feed-project-slugs
+          while IFS= read -r slug; do
             mkdir -p "site/feeds/$slug"
-            cp "$feed" "site/feeds/$slug/avito.xml"
-          done
+            curl --fail --silent --show-error --retry 3 \
+              "https://feed-api.indigo-dm.ru/data/projects/${slug}/avito.xml" \
+              --output "site/feeds/$slug/avito.xml"
+          done < /tmp/feed-project-slugs
           test -f site/feeds/novyy-gorizont/avito.xml
 
       - name: Configure Pages
