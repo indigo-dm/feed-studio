@@ -4378,11 +4378,6 @@
       drawCovered(context, loaded[1], 64, 243, 454, 389);
     }
 
-    if (state.cardSettings.show_house_badge) {
-      context.fillStyle = 'rgba(255,255,255,.08)';
-      context.fillRect(56, 180, 145, 42);
-      canvasText(context, String(item.house || '').toUpperCase(), 74, 208, '700 19px Manrope, Arial', textColor);
-    }
     var promotion = appliedRule(item);
     if (promotion && canvas.id === 'material-live-card') {
       var promotionLabel = String(promotion.label || 'Акция').toUpperCase();
@@ -4411,8 +4406,37 @@
     var parameterValues = effectiveParameters(item);
     var effectiveRooms = parameterValues.Rooms != null ? parameterValues.Rooms : item.rooms;
     canvasText(context, roomCardTitle(effectiveRooms), 291, 696, '800 28px Manrope, Arial', textColor, 'center');
+    var metaBaseline = 733;
+    var houseBadgeWidth = 0;
+    if (state.cardSettings.show_house_badge) {
+      var houseText = String(item.house || '').toUpperCase();
+      var houseFontSize = 16;
+      do {
+        context.font = '700 ' + houseFontSize + 'px Manrope, Arial';
+        houseBadgeWidth = Math.ceil(context.measureText(houseText).width) + 28;
+        if (houseBadgeWidth <= 220 || houseFontSize <= 11) break;
+        houseFontSize -= 1;
+      } while (houseFontSize >= 11);
+      houseBadgeWidth = Math.min(220, houseBadgeWidth);
+      context.fillStyle = 'rgba(255,255,255,.08)';
+      context.strokeStyle = textColor;
+      context.lineWidth = 1;
+      context.beginPath();
+      context.roundRect(56, 708, houseBadgeWidth, 36, 18);
+      context.fill();
+      context.stroke();
+      canvasText(context, houseText, 70, metaBaseline, '700 ' + houseFontSize + 'px Manrope, Arial', textColor);
+    }
     if (state.cardSettings.show_decoration) {
-      canvasText(context, item.decoration || 'Без отделки', 56, 732, '500 18px Manrope, Arial', subtitleColor);
+      var decorationText = String(item.decoration || 'Без отделки');
+      var decorationFontSize = 18;
+      var decorationWidth = 470 - houseBadgeWidth - (houseBadgeWidth ? 20 : 0);
+      do {
+        context.font = '500 ' + decorationFontSize + 'px Manrope, Arial';
+        if (context.measureText(decorationText).width <= decorationWidth || decorationFontSize <= 13) break;
+        decorationFontSize -= 1;
+      } while (decorationFontSize >= 13);
+      canvasText(context, decorationText, 526, metaBaseline, '500 ' + decorationFontSize + 'px Manrope, Arial', subtitleColor, 'right');
     }
     context.fillStyle = primary;
     context.fillRect(56, 754, 470, 92);

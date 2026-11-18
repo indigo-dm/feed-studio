@@ -487,6 +487,19 @@ const contentTypes = {
   const cardOptionsDefaultOn = await page.locator('#show-key-render').isChecked() &&
     await page.locator('#show-house-badge').isChecked() &&
     await page.locator('#show-decoration').isChecked();
+  await page.locator('#material-live-card').screenshot({ path: path.join(os.tmpdir(), 'feed-studio-card-meta-row-qa.png') });
+  await page.locator('[data-view="preview"]').click();
+  await page.waitForFunction(() => !document.querySelector('#preview-live-card')?.classList.contains('hidden'));
+  await page.evaluate(() => {
+    document.querySelector('#live-promo').classList.remove('hidden');
+    document.querySelector('#live-promo').style.backgroundColor = '#924694';
+    document.querySelector('#live-promo').style.color = '#FFFFFF';
+    document.querySelector('#live-promo-label').textContent = 'Ипотека';
+    document.querySelector('#live-promo-text').textContent = 'без первого взноса';
+    window.dispatchEvent(new Event('resize'));
+  });
+  await page.locator('#preview-canvas').screenshot({ path: path.join(os.tmpdir(), 'feed-studio-promo-meta-row-qa.png') });
+  await page.locator('[data-view="assets"]').click();
   const logoPanelDefaultOff = !(await page.locator('#show-logo-panel').isChecked());
   await page.locator('#show-logo-panel').check();
   const logoPanelToggleWorks = await page.locator('#material-live-card').getAttribute('data-logo-panel') === 'true';
