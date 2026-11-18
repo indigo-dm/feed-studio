@@ -16,6 +16,29 @@ const dataRoot = process.env.FEED_STUDIO_QA_DATA_ROOT
   : path.resolve(__dirname, '..', 'novyy-gorizont', 'feed-generator', 'fast-site');
 const qaInventory = JSON.parse(fs.readFileSync(path.join(dataRoot, 'projects', 'novyy-gorizont', 'inventory.json'), 'utf8'));
 const qaPublishedSettings = JSON.parse(fs.readFileSync(path.join(dataRoot, 'projects', 'novyy-gorizont', 'settings.json'), 'utf8'));
+const qaScaleTarget = Math.max(0, Number(process.env.FEED_STUDIO_QA_ITEM_COUNT || 0));
+if (qaScaleTarget > qaInventory.items.length) {
+  const sourceItems = structuredClone(qaInventory.items);
+  for (let index = qaInventory.items.length; index < qaScaleTarget; index += 1) {
+    const source = sourceItems[index % sourceItems.length];
+    const item = structuredClone(source);
+    const id = String(990000000 + index);
+    const originalId = String(source.id);
+    item.id = id;
+    ['image', 'thumbnail', 'final_image'].forEach((field) => {
+      item[field] = String(item[field] || '').replaceAll(originalId, id);
+    });
+    item.feed_images = (item.feed_images || []).map((image) => ({
+      ...image,
+      url: String(image.url || '').replaceAll(originalId, id)
+    }));
+    item.source_values ||= {};
+    item.source_values.Id = id;
+    qaInventory.items.push(item);
+  }
+  qaInventory.source_ads = qaInventory.items.length;
+  qaInventory.full_ads = qaInventory.items.length;
+}
 const qaLot = qaInventory.items[0];
 const qaSecondLot = qaInventory.items[1];
 const qaBrokenDashboardPaths = new Set(
@@ -270,11 +293,13 @@ const contentTypes = {
   await page.route('https://pb12296.profitbase.ru/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNkYGD4z8DAwMDAxAADAAwBAQDJxQ8AAAAASUVORK5CYII=', 'base64') }));
   await page.route('https://maximum.abc-dev.ru/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNkYGD4z8DAwMDAxAADAAwBAQDJxQ8AAAAASUVORK5CYII=', 'base64') }));
 
+  const scaleProbeStarted = Date.now();
   await page.goto('http://localhost/#assets', { waitUntil: 'networkidle' });
   await page.waitForFunction((fallbackId) => {
     const image = document.querySelector('#dashboard-preview');
     return image && !image.hidden && image.src.includes('/' + fallbackId + '.');
   }, String(qaSecondLot.id));
+  const scaleProbeReadyMs = Date.now() - scaleProbeStarted;
   const dashboardPreviewState = await page.evaluate(() => ({
     src: document.querySelector('#dashboard-preview')?.getAttribute('src') || '',
     imageHidden: document.querySelector('#dashboard-preview')?.hidden,
@@ -1078,6 +1103,10 @@ const contentTypes = {
       indicator_available: loadingIndicatorAvailable,
       data_requests: projectDataRequests,
       session_cache_works: projectSessionCacheWorks
+    },
+    scale_probe: {
+      items: qaInventory.items.length,
+      ready_ms: scaleProbeReadyMs
     },
     feed_refresh_status: {
       button: refreshButtonText,
