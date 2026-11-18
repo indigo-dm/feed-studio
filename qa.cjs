@@ -501,6 +501,9 @@ const contentTypes = {
     promoExpectedFontSize: canvas.clientWidth * 34 / 1200,
     promoTopRatio: document.querySelector('#live-promo').offsetTop / canvas.clientHeight,
     promoBottomRatio: (document.querySelector('#live-promo').offsetTop + document.querySelector('#live-promo').offsetHeight) / canvas.clientHeight,
+    promoLeftRatio: document.querySelector('#live-promo').offsetLeft / canvas.clientWidth,
+    promoWidthRatio: document.querySelector('#live-promo').offsetWidth / canvas.clientWidth,
+    promoBorderRadius: getComputedStyle(document.querySelector('#live-promo')).borderRadius,
     publishedImageHidden: document.querySelector('#preview-image')?.classList.contains('hidden'),
     noteVisible: !document.querySelector('#preview-material-note')?.classList.contains('hidden')
   }));

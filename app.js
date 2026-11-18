@@ -4238,6 +4238,7 @@
     var scale = Math.max(0.01, surfaceWidth / 1200);
     var fontSize = 34 * scale;
     var minimumSize = 18 * scale;
+    promo.style.width = (470 * scale) + 'px';
     promo.style.maxWidth = (470 * scale) + 'px';
     promo.style.fontSize = fontSize + 'px';
     while (promo.scrollWidth > promo.clientWidth + 1 && fontSize > minimumSize) {
@@ -4365,10 +4366,11 @@
     if (state.cardSettings.show_logo_panel) {
       context.fillStyle = '#FFFFFF';
       context.beginPath();
-      context.roundRect(56, 54, 350, 111, 14);
+      context.roundRect(116, 54, 350, 111, 14);
       context.fill();
     }
-    drawContained(context, loaded[0], 56, 54, 350, 111, state.cardSettings.show_logo_panel ? 18 : 2);
+    drawContained(context, loaded[0], state.cardSettings.show_logo_panel ? 116 : 56, 54,
+      state.cardSettings.show_logo_panel ? 350 : 470, 111, state.cardSettings.show_logo_panel ? 18 : 2);
     if (state.cardSettings.show_key_render) {
       context.strokeStyle = primary;
       context.lineWidth = 2;
@@ -4385,28 +4387,36 @@
     if (promotion && canvas.id === 'material-live-card') {
       var promotionLabel = String(promotion.label || 'Акция').toUpperCase();
       var promotionText = String(promotion.text || '');
-      context.font = '700 14px Manrope, Arial';
-      var promotionLabelWidth = context.measureText(promotionLabel).width;
-      context.font = '800 18px Manrope, Arial';
-      var promotionTextWidth = context.measureText(promotionText).width;
-      var promotionWidth = Math.min(405, Math.max(150, promotionLabelWidth + promotionTextWidth + 50));
-      var promotionX = 526 - promotionWidth;
+      var promotionFontSize = 34;
+      var promotionGap = 10;
+      var promotionLabelWidth;
+      var promotionTextWidth;
+      var promotionContentWidth;
+      do {
+        context.font = '700 ' + promotionFontSize + 'px Manrope, Arial';
+        promotionLabelWidth = context.measureText(promotionLabel).width;
+        context.font = '800 ' + promotionFontSize + 'px Manrope, Arial';
+        promotionTextWidth = context.measureText(promotionText).width;
+        promotionContentWidth = promotionLabelWidth + promotionGap + promotionTextWidth;
+        if (promotionContentWidth <= 446 || promotionFontSize <= 18) break;
+        promotionFontSize -= 1;
+      } while (promotionFontSize >= 18);
+      var promotionX = 56 + (470 - promotionContentWidth) / 2;
       context.fillStyle = promotionFrameColor;
-      context.beginPath();
-      context.roundRect(promotionX, 180, promotionWidth, 42, 21);
-      context.fill();
-      canvasText(context, promotionLabel, promotionX + 17, 207, '700 14px Manrope, Arial', promotionTextColor);
-      canvasText(context, promotionText, promotionX + 29 + promotionLabelWidth, 208, '800 18px Manrope, Arial', promotionTextColor);
+      context.fillRect(56, 170, 470, 60);
+      canvasText(context, promotionLabel, promotionX, 213, '700 ' + promotionFontSize + 'px Manrope, Arial', promotionTextColor);
+      canvasText(context, promotionText, promotionX + promotionLabelWidth + promotionGap, 213,
+        '800 ' + promotionFontSize + 'px Manrope, Arial', promotionTextColor);
     }
     var parameterValues = effectiveParameters(item);
     var effectiveRooms = parameterValues.Rooms != null ? parameterValues.Rooms : item.rooms;
-    canvasText(context, roomCardTitle(effectiveRooms), 56, 696, '800 28px Manrope, Arial', textColor);
+    canvasText(context, roomCardTitle(effectiveRooms), 291, 696, '800 28px Manrope, Arial', textColor, 'center');
     if (state.cardSettings.show_decoration) {
       canvasText(context, item.decoration || 'Без отделки', 56, 732, '500 18px Manrope, Arial', subtitleColor);
     }
     context.fillStyle = primary;
-    context.fillRect(56, 754, 405, 92);
-    canvasText(context, formatPrice(item.price), 258, 814, '800 36px Manrope, Arial', textColor, 'center');
+    context.fillRect(56, 754, 470, 92);
+    canvasText(context, formatPrice(item.price), 291, 814, '800 36px Manrope, Arial', textColor, 'center');
 
     context.fillStyle = '#FFFFFF';
     context.fillRect(584, 54, 560, 792);
