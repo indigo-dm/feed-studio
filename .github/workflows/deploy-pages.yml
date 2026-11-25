@@ -11,6 +11,7 @@ on:
       timezone: "Europe/Moscow"
 
 permissions:
+  actions: read
   contents: read
   pages: write
   id-token: write
@@ -24,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment_retry.outputs.page_url || steps.deployment_final.outputs.page_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -55,6 +56,39 @@ jobs:
         with:
           path: site
 
+      - name: Wait for Pages artifact metadata
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const waitForArtifact = require('./.github/scripts/wait-pages-artifact.cjs');
+            await waitForArtifact({
+              list: async () => (await github.rest.actions.listWorkflowRunArtifacts({
+                owner: context.repo.owner, repo: context.repo.repo,
+                run_id: context.runId, per_page: 100
+              })).data.artifacts,
+              log: core.info
+            });
+
       - name: Deploy Pages
         id: deployment
+        continue-on-error: true
+        uses: actions/deploy-pages@v5
+
+      - name: Allow artifact service to settle
+        if: ${{ !cancelled() && steps.deployment.outcome == 'failure' }}
+        run: sleep 20
+
+      - name: Retry Pages deployment
+        id: deployment_retry
+        if: ${{ !cancelled() && steps.deployment.outcome == 'failure' }}
+        continue-on-error: true
+        uses: actions/deploy-pages@v5
+
+      - name: Wait before final deployment attempt
+        if: ${{ !cancelled() && steps.deployment_retry.outcome == 'failure' }}
+        run: sleep 40
+
+      - name: Final Pages deployment attempt
+        id: deployment_final
+        if: ${{ !cancelled() && steps.deployment_retry.outcome == 'failure' }}
         uses: actions/deploy-pages@v5
