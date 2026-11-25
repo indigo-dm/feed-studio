@@ -23,6 +23,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url || steps.deployment_retry.outputs.page_url || steps.deployment_final.outputs.page_url }}
@@ -36,13 +37,15 @@ jobs:
           cp index.html app.css app.js access.js access-config.js runtime-config.js robots.txt .nojekyll site/
           cp -R assets site/assets
           mkdir -p site/feeds
-          curl --fail --silent --show-error --retry 3 \
+          curl --fail --silent --show-error --retry 3 --retry-delay 5 \
+            --connect-timeout 15 --max-time 60 --retry-max-time 180 \
             https://feed-api.indigo-dm.ru/data/projects.json \
             --output /tmp/feed-projects.json
           node -e "const p=require('/tmp/feed-projects.json'); for(const item of p.projects||[]) if(item.available) console.log(item.slug)" > /tmp/feed-project-slugs
           while IFS= read -r slug; do
             mkdir -p "site/feeds/$slug"
-            curl --fail --silent --show-error --retry 3 \
+            curl --fail --silent --show-error --retry 3 --retry-delay 5 \
+              --connect-timeout 15 --max-time 60 --retry-max-time 180 \
               "https://feed-api.indigo-dm.ru/data/projects/${slug}/avito.xml" \
               --output "site/feeds/$slug/avito.xml"
           done < /tmp/feed-project-slugs
